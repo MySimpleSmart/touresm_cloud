@@ -347,7 +347,7 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
   return (
     <Link
       to={`/listing/${listing.id}`}
-      className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden group"
+      className="bg-white rounded-lg shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden group flex flex-col h-full"
     >
       <div className="relative h-48 overflow-hidden group/image-gallery">
         {/* Main Gallery Image */}
@@ -433,7 +433,7 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
           </span>
         )}
       </div>
-      <div className="p-5">
+      <div className="p-5 flex flex-col flex-1">
         <h3 className="text-xl font-semibold text-gray-900 mb-2 line-clamp-1">
           {listing.listing_name || 'Unnamed Listing'}
         </h3>
@@ -517,14 +517,14 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
         
         {/* Social / Video Links */}
         {(listing.listing_social_url || listing.listing_video) && (
-          <div className="mb-4 flex flex-wrap gap-3">
+          <div className="mb-4 flex flex-wrap gap-2 text-sm">
             {listing.listing_social_url && (
               <a
                 href={listing.listing_social_url}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center text-primary-600 hover:text-primary-700 text-sm font-medium"
+                className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-700 hover:bg-primary-100 px-3 py-1 font-medium transition-colors"
               >
                 <svg
                   className="w-4 h-4 mr-1"
@@ -548,7 +548,7 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center text-primary-600 hover:text-primary-700 text-sm font-medium"
+                className="inline-flex items-center gap-1 rounded-full bg-primary-50 text-primary-700 hover:bg-primary-100 px-3 py-1 font-medium transition-colors"
               >
                 <svg
                   className="w-4 h-4 mr-1"
@@ -645,18 +645,29 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
           )}
         </div>
 
-        <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-          <div>
-            {listing.listing_price ? (
-              <p className="text-2xl font-bold text-primary-600">
-                {formatPrice(listing.listing_price)}
-              </p>
-            ) : (
-              <p className="text-gray-500">Price on request</p>
-            )}
-          </div>
-          <span className="text-primary-600 font-medium group-hover:translate-x-1 transition-transform">
-            View Details →
+        <div className="mt-auto pt-4 border-t border-gray-200 flex items-center justify-between gap-3">
+          {listing.listing_price ? (
+            <p className="text-2xl font-bold text-primary-600">
+              {formatPrice(listing.listing_price)}
+            </p>
+          ) : (
+            <p className="text-gray-500">Price on request</p>
+          )}
+          <span className="inline-flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 group-hover:bg-primary-700 group-hover:shadow-md">
+            View Details
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
           </span>
         </div>
       </div>

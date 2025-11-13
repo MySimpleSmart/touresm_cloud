@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getListing, getAmenities, getCategories, getLocations, getSizes } from '../services/api';
 import ImageGallery from './ImageGallery';
+import CustomDatePicker from './DatePicker';
 
 const ListingDetail = () => {
   const { id } = useParams();
@@ -13,6 +14,10 @@ const ListingDetail = () => {
   const [locations, setLocations] = useState([]);
   const [sizes, setSizes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  const [guestCount, setGuestCount] = useState(1);
+  const [totalPrice, setTotalPrice] = useState(null);
 
   useEffect(() => {
     loadListing();
@@ -26,8 +31,6 @@ const ListingDetail = () => {
       if (!listingData) {
         setLoading(false);
         return;
-      } else {
-        setAmenities([]);
       }
       setListing(listingData);
       
@@ -146,12 +149,12 @@ const ListingDetail = () => {
             selectedAmenityObjects.forEach(amenityObj => {
               const amenityId = normalizeId(amenityObj.id || amenityObj.term_id);
               if (amenityId != null && !foundIds.has(amenityId)) {
-                const exists = selectedAmenities.some(a => {
+              const exists = selectedAmenities.some(a => {
                   const aId = normalizeId(a.id || a.term_id);
                   return idsMatch(aId, amenityId);
-                });
-                if (!exists) {
-                  selectedAmenities.push(amenityObj);
+              });
+              if (!exists) {
+                selectedAmenities.push(amenityObj);
                   foundIds.add(amenityId);
                   foundIds.add(String(amenityId));
                 }
@@ -716,6 +719,49 @@ const ListingDetail = () => {
     return stringValue.trim() || null;
   };
 
+  const maxGuests = Math.max(parseInt(listing?.guest_max_number, 10) || 10, 1);
+
+  useEffect(() => {
+    setGuestCount((prev) => {
+      if (prev > maxGuests) return maxGuests;
+      if (prev < 1) return 1;
+      return prev;
+    });
+  }, [maxGuests]);
+  
+  useEffect(() => {
+    if (!listing?.listing_price) {
+      setTotalPrice(null);
+      return;
+    }
+
+    if (!startDate || !endDate) {
+      setTotalPrice(null);
+      return;
+    }
+
+    const nightlyRate = parseFloat(listing.listing_price);
+    if (Number.isNaN(nightlyRate)) {
+      setTotalPrice(null);
+      return;
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = end.getTime() - start.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays <= 0) {
+      setTotalPrice(null);
+      return;
+    }
+
+    setTotalPrice({
+      total: nightlyRate * diffDays,
+      nights: diffDays,
+    });
+  }, [listing?.listing_price, startDate, endDate]);
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -771,97 +817,89 @@ const ListingDetail = () => {
         )}
 
         <div className="p-8">
+          <div className="flex flex-col gap-8 lg:flex-row">
+            <div className="flex-1">
           {/* Header */}
           <div className="mb-6">
-            <div className="flex items-start justify-between mb-4">
+                <div className="mb-4 flex items-start justify-between">
               <div className="flex-1">
-                <h1 className="text-4xl font-bold text-gray-900 mb-2">
+                    <h1 className="mb-2 text-4xl font-bold text-gray-900">
                   {listing.listing_name || 'Unnamed Listing'}
                 </h1>
-                {(() => {
-                  const locationDisplays = getAllLocationDisplays(listing.listing_location, locations);
-                  return locationDisplays.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-2 text-lg">
-                      <svg
-                        className="w-5 h-5 text-gray-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                      </svg>
-                      {locationDisplays.map((location, index) => (
-                        <span key={index} className="text-gray-600">
-                          {location}
-                          {index < locationDisplays.length - 1 && <span className="mx-1">•</span>}
-                        </span>
-                      ))}
-                      {listing.listing_familiar_location && (
-                        <span className="text-gray-600">
-                          {locationDisplays.length > 0 && <span>, </span>}
-                          {listing.listing_familiar_location}
-                        </span>
-                      )}
-                    </div>
-                  ) : null;
-                })()}
-                {(() => {
-                  // Show familiar location even if no regular locations
-                  const locationDisplays = getAllLocationDisplays(listing.listing_region || listing.listing_location, locations);
-                  if (locationDisplays.length === 0 && listing.listing_familiar_location) {
-                    return (
-                      <div className="flex flex-wrap items-center gap-2 text-lg">
-                        <svg
-                          className="w-5 h-5 text-gray-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                          />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                          />
-                        </svg>
-                        <span className="text-gray-600">{listing.listing_familiar_location}</span>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-              <div className="text-right">
-                {listing.listing_price ? (
-                  <p className="text-3xl font-bold text-primary-600">
-                    {formatPrice(listing.listing_price)}
-                  </p>
-                ) : (
-                  <p className="text-gray-500 text-lg">Price on request</p>
-                )}
+                    {(() => {
+                      const locationDisplays = getAllLocationDisplays(listing.listing_location, locations);
+                      return locationDisplays.length > 0 ? (
+                        <div className="flex flex-wrap items-center gap-2 text-lg">
+                          <svg
+                            className="h-5 w-5 text-gray-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                          {locationDisplays.map((location, index) => (
+                            <span key={index} className="text-gray-600">
+                              {location}
+                              {index < locationDisplays.length - 1 && <span className="mx-1">•</span>}
+                            </span>
+                          ))}
+                          {listing.listing_familiar_location && (
+                            <span className="text-gray-600">
+                              {locationDisplays.length > 0 && <span>, </span>}
+                              {listing.listing_familiar_location}
+                            </span>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
+                    {(() => {
+                      const regionDisplays = getAllLocationDisplays(listing.listing_region || listing.listing_location, locations);
+                      if (regionDisplays.length === 0 && listing.listing_familiar_location) {
+                        return (
+                          <div className="flex flex-wrap items-center gap-2 text-lg text-gray-600">
+                            <svg
+                              className="h-5 w-5 text-gray-600"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                              />
+                            </svg>
+                            <span>{listing.listing_familiar_location}</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
               </div>
             </div>
 
-            <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex flex-wrap items-center gap-3">
               {listing.listing_category && getTaxonomyValue(listing.listing_category, 'categories') && (
-                <span className="inline-block bg-primary-100 text-primary-800 px-4 py-2 rounded-full text-sm font-medium">
+                    <span className="inline-block rounded-full bg-primary-100 px-4 py-2 text-sm font-medium text-primary-800">
                   {getTaxonomyValue(listing.listing_category, 'categories')}
                 </span>
               )}
@@ -870,10 +908,10 @@ const ListingDetail = () => {
                   href={listing.listing_social_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full text-sm font-medium transition-colors"
+                      className="inline-flex items-center rounded-full bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200"
                 >
                   <svg
-                    className="w-4 h-4 mr-2"
+                        className="mr-2 h-4 w-4"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -888,40 +926,40 @@ const ListingDetail = () => {
                   Social Link
                 </a>
               )}
-              {listing.listing_video && (
-                <a
-                  href={listing.listing_video}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-full text-sm font-medium transition-colors"
-                >
-                  <svg
-                    className="w-4 h-4 mr-2"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 6h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z"
-                    />
-                  </svg>
-                  Watch Video
-                </a>
-              )}
+                  {listing.listing_video && (
+                    <a
+                      href={listing.listing_video}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center rounded-full bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200"
+                    >
+                      <svg
+                        className="mr-2 h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 6h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2z"
+                        />
+                      </svg>
+                      Watch Video
+                    </a>
+                  )}
             </div>
           </div>
 
           {/* Listing Details */}
           <div className="mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
               {listing.room_number && (
-                <div className="flex items-center p-4 bg-gray-50 rounded-lg">
-                  <div className="bg-primary-100 p-3 rounded-lg mr-4">
+                    <div className="flex items-center rounded-lg bg-gray-50 p-4">
+                      <div className="mr-4 rounded-lg bg-primary-100 p-3">
                     <svg
-                      className="w-6 h-6 text-primary-600"
+                          className="h-6 w-6 text-primary-600"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -941,10 +979,10 @@ const ListingDetail = () => {
                 </div>
               )}
               {listing.listing_bed_number && (
-                <div className="flex items-center p-4 bg-gray-50 rounded-lg">
-                  <div className="bg-primary-100 p-3 rounded-lg mr-4">
+                    <div className="flex items-center rounded-lg bg-gray-50 p-4">
+                      <div className="mr-4 rounded-lg bg-primary-100 p-3">
                     <svg
-                      className="w-6 h-6 text-primary-600"
+                          className="h-6 w-6 text-primary-600"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -964,10 +1002,10 @@ const ListingDetail = () => {
                 </div>
               )}
               {listing.guest_max_number && (
-                <div className="flex items-center p-4 bg-gray-50 rounded-lg">
-                  <div className="bg-primary-100 p-3 rounded-lg mr-4">
+                    <div className="flex items-center rounded-lg bg-gray-50 p-4">
+                      <div className="mr-4 rounded-lg bg-primary-100 p-3">
                     <svg
-                      className="w-6 h-6 text-primary-600"
+                          className="h-6 w-6 text-primary-600"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -987,10 +1025,10 @@ const ListingDetail = () => {
                 </div>
               )}
               {listing.listing_size && getTaxonomyValue(listing.listing_size, 'sizes') && (
-                <div className="flex items-center p-4 bg-gray-50 rounded-lg">
-                  <div className="bg-primary-100 p-3 rounded-lg mr-4">
+                    <div className="flex items-center rounded-lg bg-gray-50 p-4">
+                      <div className="mr-4 rounded-lg bg-primary-100 p-3">
                     <svg
-                      className="w-6 h-6 text-primary-600"
+                          className="h-6 w-6 text-primary-600"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -1015,9 +1053,9 @@ const ListingDetail = () => {
           {/* Description */}
           {listing.listing_description && (
             <div className="mb-8">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">Description</h2>
+                  <h2 className="mb-4 text-2xl font-semibold text-gray-900">Description</h2>
               <div
-                className="text-gray-700 leading-relaxed prose max-w-none"
+                    className="prose max-w-none text-gray-700 leading-relaxed"
                 dangerouslySetInnerHTML={{ __html: listing.listing_description }}
               />
             </div>
@@ -1026,16 +1064,16 @@ const ListingDetail = () => {
           {/* Features */}
           {listing.listing_features && (
             <div className="mb-8">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">Features</h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  <h2 className="mb-4 text-2xl font-semibold text-gray-900">Features</h2>
+                  <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
                 {Array.isArray(listing.listing_features) ? (
                   listing.listing_features.map((feature, index) => (
                     <div
                       key={index}
-                      className="flex items-center p-3 bg-gray-50 rounded-lg"
+                          className="flex items-center rounded-lg bg-gray-50 p-3"
                     >
                       <svg
-                        className="w-5 h-5 text-primary-600 mr-2"
+                            className="mr-2 h-5 w-5 text-primary-600"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -1051,9 +1089,9 @@ const ListingDetail = () => {
                     </div>
                   ))
                 ) : (
-                  <div className="flex items-center p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center rounded-lg bg-gray-50 p-3">
                     <svg
-                      className="w-5 h-5 text-primary-600 mr-2"
+                          className="mr-2 h-5 w-5 text-primary-600"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -1075,19 +1113,19 @@ const ListingDetail = () => {
           {/* Amenities */}
           {Object.keys(groupedAmenities).length > 0 && (
             <div className="mb-8">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-4">Amenities</h2>
+                  <h2 className="mb-4 text-2xl font-semibold text-gray-900">Amenities</h2>
               <div className="space-y-6">
                 {Object.entries(groupedAmenities).map(([parentName, children]) => (
                   <div key={parentName} className="border-b border-gray-200 pb-6 last:border-b-0 last:pb-0">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-3">{parentName}</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <h3 className="mb-3 text-lg font-semibold text-gray-900">{parentName}</h3>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                       {children.map((amenity) => (
                         <div
                           key={amenity.id || amenity.term_id}
-                          className="flex items-center p-3 bg-gray-50 rounded-lg"
+                              className="flex items-center rounded-lg bg-gray-50 p-3"
                         >
                           <svg
-                            className="w-4 h-4 text-primary-600 mr-2 flex-shrink-0"
+                                className="mr-2 h-4 w-4 flex-shrink-0 text-primary-600"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -1099,7 +1137,7 @@ const ListingDetail = () => {
                               d="M5 13l4 4L19 7"
                             />
                           </svg>
-                          <span className="text-gray-700 text-sm">{amenity.name}</span>
+                              <span className="text-sm text-gray-700">{amenity.name}</span>
                         </div>
                       ))}
                     </div>
@@ -1108,7 +1146,118 @@ const ListingDetail = () => {
               </div>
             </div>
           )}
+            </div>
 
+            <aside className="w-full lg:w-96">
+              <div className="sticky top-24">
+                <div className="space-y-6 rounded-2xl border border-gray-200 bg-gray-50 p-6 shadow-sm">
+                  <div>
+                    {listing.listing_price ? (
+                      <>
+                        <p className="text-3xl font-bold text-primary-600">
+                          {totalPrice ? formatPrice(totalPrice.total) : formatPrice(listing.listing_price)}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          {totalPrice
+                            ? `${formatPrice(listing.listing_price)} × ${totalPrice.nights} night${totalPrice.nights === 1 ? '' : 's'}`
+                            : 'Select check-in and check-out dates to see the total price'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-2xl font-semibold text-gray-900">Price on request</p>
+                        <p className="text-sm text-gray-500">Contact the host for pricing</p>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
+                        Start date
+                      </label>
+                      <CustomDatePicker
+                        selected={startDate}
+                        onChange={(date) => {
+                          setStartDate(date);
+                          if (endDate && date && date > endDate) {
+                            setEndDate(null);
+                          }
+                        }}
+                        onClear={() => setStartDate(null)}
+                        placeholder="Check-in date"
+                        selectsStart
+                        startDate={startDate}
+                        endDate={endDate}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
+                        End date
+                      </label>
+                      <CustomDatePicker
+                        selected={endDate}
+                        onChange={(date) => setEndDate(date)}
+                        onClear={() => setEndDate(null)}
+                        placeholder="Check-out date"
+                        selectsEnd
+                        startDate={startDate}
+                        endDate={endDate}
+                        minDate={startDate || new Date()}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700">
+                        Guests
+                      </label>
+                      <div className="mt-1 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-2.5 shadow-sm">
+                        <button
+                          type="button"
+                          onClick={() => setGuestCount((prev) => Math.max(prev - 1, 1))}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-lg font-semibold text-gray-600 transition hover:border-gray-300 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary-300"
+                          aria-label="Decrease guests"
+                        >
+                          −
+                        </button>
+                        <div className="text-center">
+                          <p className="text-lg font-semibold text-gray-900">{guestCount}</p>
+                          <p className="text-xs text-gray-500">{guestCount === 1 ? 'Guest' : 'Guests'}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setGuestCount((prev) => Math.min(prev + 1, maxGuests))}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-lg font-semibold text-gray-600 transition hover:border-gray-300 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-primary-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="Increase guests"
+                          disabled={guestCount >= maxGuests}
+                        >
+                          +
+                        </button>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Maximum {maxGuests} {maxGuests === 1 ? 'guest' : 'guests'} allowed
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!totalPrice}
+                    className={`inline-flex w-full items-center justify-center rounded-full px-5 py-3 font-semibold text-white shadow-lg shadow-primary-200/60 transition-all duration-200 ${
+                      totalPrice
+                        ? 'bg-primary-600 hover:bg-primary-700'
+                        : 'bg-primary-300 cursor-not-allowed'
+                    }`}
+                  >
+                    Confirm Availability
+                  </button>
+
+                  <p className="text-center text-xs text-gray-500">
+                    You won’t be charged yet. We’ll confirm your stay within 24 hours of submitting your request.
+                  </p>
+                </div>
+              </div>
+            </aside>
+          </div>
         </div>
       </div>
     </div>

@@ -1,7 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 
 const ImageGallery = ({ images }) => {
   const [selectedImage, setSelectedImage] = useState(0);
+  const [isFading, setIsFading] = useState(true);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
 
   // Helper to extract URL from image object or string
   const getImageUrl = (image) => {
@@ -35,6 +38,58 @@ const ImageGallery = ({ images }) => {
     e.target.onerror = null; // Prevent infinite loop
   };
 
+  useEffect(() => {
+    setIsFading(false);
+    const timeout = setTimeout(() => setIsFading(true), 20);
+    return () => clearTimeout(timeout);
+  }, [selectedImage]);
+
+  useEffect(() => {
+    if (!isLightboxOpen) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setIsLightboxOpen(false);
+      } else if (event.key === 'ArrowRight') {
+        setLightboxIndex((prev) =>
+          prev === imageArray.length - 1 ? 0 : prev + 1
+        );
+      } else if (event.key === 'ArrowLeft') {
+        setLightboxIndex((prev) => (prev === 0 ? imageArray.length - 1 : prev - 1));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isLightboxOpen, imageArray.length]);
+
+  const openLightbox = (index) => {
+    setLightboxIndex(index);
+    setIsLightboxOpen(true);
+  };
+
+  const closeLightbox = () => {
+    setIsLightboxOpen(false);
+  };
+
+  const showPrevious = () => {
+    setSelectedImage((prev) =>
+      prev === 0 ? imageArray.length - 1 : prev - 1
+    );
+    setLightboxIndex((prev) =>
+      prev === 0 ? imageArray.length - 1 : prev - 1
+    );
+  };
+
+  const showNext = () => {
+    setSelectedImage((prev) =>
+      prev === imageArray.length - 1 ? 0 : prev + 1
+    );
+    setLightboxIndex((prev) =>
+      prev === imageArray.length - 1 ? 0 : prev + 1
+    );
+  };
+
   if (imageArray.length === 0) {
     return (
       <div className="h-96 bg-gray-200 flex items-center justify-center">
@@ -46,24 +101,24 @@ const ImageGallery = ({ images }) => {
   return (
     <div className="relative">
       {/* Main Image */}
-      <div className="relative h-96 md:h-[500px] bg-gray-200">
+      <div className="relative h-96 md:h-[500px] bg-gray-200 overflow-hidden">
         <img
+          key={imageArray[selectedImage]}
           src={imageArray[selectedImage] || placeholderImage}
           alt={`Gallery image ${selectedImage + 1}`}
-          className="w-full h-full object-cover"
+          className={`w-full h-full object-cover transition-opacity duration-500 ease-in-out ${
+            isFading ? 'opacity-100' : 'opacity-0'
+          } cursor-zoom-in`}
           onError={handleImageError}
+          onClick={() => openLightbox(selectedImage)}
         />
         
         {/* Navigation Arrows */}
         {imageArray.length > 1 && (
           <>
             <button
-              onClick={() =>
-                setSelectedImage(
-                  selectedImage === 0 ? imageArray.length - 1 : selectedImage - 1
-                )
-              }
-              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all"
+              onClick={showPrevious}
+              className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all backdrop-blur-sm"
               aria-label="Previous image"
             >
               <svg
@@ -81,12 +136,8 @@ const ImageGallery = ({ images }) => {
               </svg>
             </button>
             <button
-              onClick={() =>
-                setSelectedImage(
-                  selectedImage === imageArray.length - 1 ? 0 : selectedImage + 1
-                )
-              }
-              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all"
+              onClick={showNext}
+              className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full p-2 transition-all backdrop-blur-sm"
               aria-label="Next image"
             >
               <svg
@@ -121,7 +172,10 @@ const ImageGallery = ({ images }) => {
             {imageArray.map((image, index) => (
               <button
                 key={index}
-                onClick={() => setSelectedImage(index)}
+                onClick={() => {
+                  setSelectedImage(index);
+                  setLightboxIndex(index);
+                }}
                 className={`flex-shrink-0 w-24 h-24 rounded-lg overflow-hidden border-2 transition-all ${
                   selectedImage === index
                     ? 'border-primary-600 ring-2 ring-primary-300'
@@ -136,6 +190,96 @@ const ImageGallery = ({ images }) => {
                 />
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {isLightboxOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-90 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          onClick={closeLightbox}
+        >
+          <div
+            className="relative max-w-6xl w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={closeLightbox}
+              className="absolute top-4 right-4 bg-white bg-opacity-90 hover:bg-opacity-100 text-gray-800 rounded-full p-2 transition-colors"
+              aria-label="Close lightbox"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+
+            <img
+              key={imageArray[lightboxIndex]}
+              src={imageArray[lightboxIndex] || placeholderImage}
+              alt={`Gallery image ${lightboxIndex + 1}`}
+              className="w-full max-h-[80vh] object-contain rounded-lg shadow-2xl transition-opacity duration-500 ease-in-out"
+              onError={handleImageError}
+            />
+
+            {imageArray.length > 1 && (
+              <>
+                <button
+                  onClick={showPrevious}
+                  className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 text-gray-800 rounded-full p-3 transition-all"
+                  aria-label="Previous image"
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 19l-7-7 7-7"
+                    />
+                  </svg>
+                </button>
+                <button
+                  onClick={showNext}
+                  className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white bg-opacity-80 hover:bg-opacity-100 text-gray-800 rounded-full p-3 transition-all"
+                  aria-label="Next image"
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
+              </>
+            )}
+
+            {imageArray.length > 1 && (
+              <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black bg-opacity-60 text-white px-4 py-2 rounded-full text-sm">
+                {lightboxIndex + 1} / {imageArray.length}
+              </div>
+            )}
           </div>
         </div>
       )}
