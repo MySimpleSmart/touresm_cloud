@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+/* Airbnb-style Date Picker */
+.airbnb-calendar {
+  @apply border border-gray-200 rounded-lg shadow-lg;
+}
+
+.airbnb-calendar .react-datepicker__header {
+  @apply bg-white border-b border-gray-200 rounded-t-lg;
+}
+
+.airbnb-calendar .react-datepicker__current-month {
+  @apply text-gray-900 font-semibold text-base py-2;
+}
+
+.airbnb-calendar .react-datepicker__day-names {
+  @apply flex justify-around py-2 border-b border-gray-100;
+}
+
+.airbnb-calendar .react-datepicker__day-name {
+  @apply text-gray-600 text-xs font-medium w-10 h-10 flex items-center justify-center;
+}
+
+.airbnb-calendar .react-datepicker__month {
+  @apply p-2;
+}
+
+.airbnb-calendar .react-datepicker__week {
+  @apply flex justify-around;
+}
+
+.airbnb-calendar .react-datepicker__day {
+  @apply w-10 h-10 flex items-center justify-center rounded-full text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors;
+  margin: 2px;
+}
+
+.airbnb-calendar .react-datepicker__day--selected,
+.airbnb-calendar .react-datepicker__day--in-range {
+  @apply bg-primary-600 text-white hover:bg-primary-700;
+}
+
+.airbnb-calendar .react-datepicker__day--in-selecting-range {
+  @apply bg-primary-100 text-primary-700;
+}
+
+.airbnb-calendar .react-datepicker__day--range-start,
+.airbnb-calendar .react-datepicker__day--range-end {
+  @apply bg-primary-600 text-white font-semibold;
+}
+
+.airbnb-calendar .react-datepicker__day--disabled {
+  @apply text-gray-300 cursor-not-allowed hover:bg-transparent;
+}
+
+.airbnb-calendar .react-datepicker__day--outside-month {
+  @apply text-gray-300;
+}
+
+.airbnb-calendar .react-datepicker__day--today {
+  @apply font-semibold;
+}
+
+.airbnb-calendar .react-datepicker__navigation {
+  @apply top-4;
+}
+
+.airbnb-calendar .react-datepicker__navigation-icon::before {
+  @apply border-gray-600;
+}
+
+.airbnb-calendar .react-datepicker__navigation:hover *::before {
+  @apply border-primary-600;
+}
+
+.airbnb-popper {
+  z-index: 50;
+}
+
