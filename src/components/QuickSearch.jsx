@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import CustomDatePicker from './DatePicker';
+import LocationDropdown from './LocationDropdown';
 
 const QuickSearch = ({ locations = [], onSearch }) => {
   const [checkInDate, setCheckInDate] = useState(null);
   const [checkOutDate, setCheckOutDate] = useState(null);
+  const [guestsInput, setGuestsInput] = useState('1');
   const [searchData, setSearchData] = useState({
     location: '',
     checkIn: '',
     checkOut: '',
     guests: 1,
   });
+
 
   const handleDateChange = (field, date) => {
     if (field === 'checkIn') {
@@ -33,7 +36,12 @@ const QuickSearch = ({ locations = [], onSearch }) => {
   };
 
   const handleChange = (field, value) => {
-    setSearchData({ ...searchData, [field]: value });
+    if (field === 'guests') {
+      setSearchData({ ...searchData, [field]: value });
+      setGuestsInput(String(value));
+    } else {
+      setSearchData({ ...searchData, [field]: value });
+    }
   };
 
   const handleSubmit = (e) => {
@@ -56,6 +64,7 @@ const QuickSearch = ({ locations = [], onSearch }) => {
   const clearAll = () => {
     setCheckInDate(null);
     setCheckOutDate(null);
+    setGuestsInput('1');
     setSearchData({
       location: '',
       checkIn: '',
@@ -74,18 +83,12 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Location
             </label>
-            <select
+            <LocationDropdown
+              locations={locations}
               value={searchData.location}
-              onChange={(e) => handleChange('location', e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            >
-              <option value="">All Locations</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => handleChange('location', value)}
+              placeholder="All Locations"
+            />
           </div>
 
           {/* Check In - 25% */}
@@ -126,14 +129,65 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Guests
             </label>
-            <input
-              type="number"
-              min="1"
-              max="20"
-              value={searchData.guests}
-              onChange={(e) => handleChange('guests', parseInt(e.target.value) || 1)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            />
+            <div className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const newValue = Math.max(searchData.guests - 1, 1);
+                  setSearchData({ ...searchData, guests: newValue });
+                  setGuestsInput(String(newValue));
+                }}
+                className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-sm font-medium text-gray-600 transition hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-300"
+                aria-label="Decrease guests"
+              >
+                −
+              </button>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={guestsInput}
+                onChange={(e) => {
+                  const inputValue = e.target.value;
+                  setGuestsInput(inputValue);
+                  if (inputValue === '') {
+                    return;
+                  }
+                  const numValue = parseInt(inputValue, 10);
+                  if (!isNaN(numValue) && numValue >= 1 && numValue <= 20) {
+                    setSearchData({ ...searchData, guests: numValue });
+                  }
+                }}
+                onBlur={(e) => {
+                  const inputValue = e.target.value;
+                  const numValue = parseInt(inputValue, 10);
+                  if (inputValue === '' || isNaN(numValue) || numValue < 1) {
+                    setGuestsInput('1');
+                    setSearchData({ ...searchData, guests: 1 });
+                  } else if (numValue > 20) {
+                    setGuestsInput('20');
+                    setSearchData({ ...searchData, guests: 20 });
+                  } else {
+                    setGuestsInput(String(numValue));
+                  }
+                }}
+                className="flex-1 text-center text-base font-medium text-gray-900 border-0 focus:ring-0 focus:outline-none p-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                style={{ background: 'transparent', width: '3rem' }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const newValue = Math.min(searchData.guests + 1, 20);
+                  setSearchData({ ...searchData, guests: newValue });
+                  setGuestsInput(String(newValue));
+                }}
+                disabled={searchData.guests >= 20}
+                className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-sm font-medium text-gray-600 transition hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-300 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Increase guests"
+              >
+                +
+              </button>
+            </div>
           </div>
 
           {/* Search Button */}

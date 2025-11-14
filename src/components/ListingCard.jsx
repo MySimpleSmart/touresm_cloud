@@ -134,10 +134,12 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
       if (!term) return;
       const termId = getId(term);
       if (termId == null) {
+        // If no ID, still add it
         selectedTerms.push(term);
         return;
       }
       
+      // Check if we've seen this ID
       const idStr = String(termId);
       if (!seenIds.has(idStr)) {
         seenIds.add(idStr);
@@ -147,10 +149,12 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
     
     // Handle arrays
     if (Array.isArray(value)) {
-      value.forEach((item) => {
+      value.forEach((item, index) => {
         if (typeof item === 'object' && item !== null) {
+          // It's already a term object
           addTerm(item);
         } else {
+          // It's an ID, find the term
           const itemId = getId(item);
           if (itemId != null) {
             const foundTerm = locationsList.find(t => idsEqual(getId(t), itemId));
@@ -161,6 +165,7 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
         }
       });
     } else {
+      // Single value
       if (typeof value === 'object' && value !== null) {
         addTerm(value);
       } else {

@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import LocationDropdown from './LocationDropdown';
 
 const SearchFilters = ({ filters, categories, locations, onFilterChange }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+
 
   const handleInputChange = (field, value) => {
     onFilterChange({ [field]: value });
@@ -70,18 +72,13 @@ const SearchFilters = ({ filters, categories, locations, onFilterChange }) => {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Location
             </label>
-            <select
+            <LocationDropdown
+              locations={locations}
               value={filters.location}
-              onChange={(e) => handleInputChange('location', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-            >
-              <option value="">All Locations</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => handleInputChange('location', value)}
+              placeholder="All Locations"
+              className="py-2"
+            />
           </div>
 
           <div>

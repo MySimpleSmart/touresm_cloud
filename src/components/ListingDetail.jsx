@@ -410,6 +410,19 @@ const ListingDetail = () => {
     return `₮${parseFloat(price).toLocaleString()}`;
   };
 
+  const formatTime = (time) => {
+    if (!time) return '';
+    // Handle time strings like "14:00:45" or "10:00:02"
+    // Remove seconds and return "14:00" or "10:00"
+    if (typeof time === 'string') {
+      const parts = time.split(':');
+      if (parts.length >= 2) {
+        return `${parts[0]}:${parts[1]}`;
+      }
+    }
+    return time;
+  };
+
   // Helper function to get location display text with parent
   const getLocationDisplay = (term, locationsList) => {
     if (!term || !locationsList) return null;
@@ -1190,6 +1203,11 @@ const ListingDetail = () => {
                         startDate={startDate}
                         endDate={endDate}
                       />
+                      {listing.check_in_time && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Check-in time: {formatTime(listing.check_in_time)}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
@@ -1205,7 +1223,59 @@ const ListingDetail = () => {
                         endDate={endDate}
                         minDate={startDate || new Date()}
                       />
+                      {listing.check_out_time && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Check-out time: {formatTime(listing.check_out_time)}
+                        </p>
+                      )}
                     </div>
+                    {(listing.check_in_time || listing.check_out_time) && (
+                      <div className="rounded-lg border border-gray-200 bg-white p-3">
+                        <div className="flex items-center justify-between text-sm">
+                          {listing.check_in_time && (
+                            <div className="flex items-center">
+                              <svg
+                                className="mr-2 h-4 w-4 text-primary-600"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                              </svg>
+                              <span className="text-gray-600">Check-in:</span>
+                              <span className="ml-1 font-medium text-gray-900">{formatTime(listing.check_in_time)}</span>
+                            </div>
+                          )}
+                          {listing.check_in_time && listing.check_out_time && (
+                            <span className="mx-2 text-gray-300">•</span>
+                          )}
+                          {listing.check_out_time && (
+                            <div className="flex items-center">
+                              <svg
+                                className="mr-2 h-4 w-4 text-primary-600"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                              </svg>
+                              <span className="text-gray-600">Check-out:</span>
+                              <span className="ml-1 font-medium text-gray-900">{formatTime(listing.check_out_time)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-sm font-medium text-gray-700">
                         Guests
