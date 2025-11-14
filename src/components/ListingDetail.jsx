@@ -203,8 +203,8 @@ const ListingDetail = () => {
             
             if (children.length > 0) {
               // Has selected children, group children under this parent
-              // Also include the parent itself if it's selected
-              grouped[parentName] = [amenity, ...children];
+              // Don't include the parent itself in the children list (parent is shown as heading)
+              grouped[parentName] = [...children];
               // Mark parent and children as processed
               processedIds.add(amenityId);
               children.forEach(child => {
