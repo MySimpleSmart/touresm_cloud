@@ -366,8 +366,6 @@ export const getMediaByParent = async (parentId, params = {}) => {
 
 export const updateMediaItem = async (id, data) => {
   try {
-    console.log(`updateMediaItem: Updating media ${id} with data:`, data);
-    
     // WordPress REST API uses POST for media updates
     // The 'post' field should map to 'post_parent' in WordPress
     const updateData = { ...data };
@@ -381,10 +379,9 @@ export const updateMediaItem = async (id, data) => {
     // WordPress REST API might need the data in a specific format
     // Try POST first (WordPress standard for media updates)
     const response = await api.post(`/media/${id}`, updateData);
-    console.log(`updateMediaItem: Successfully updated media ${id}:`, response.data);
     return response.data;
   } catch (error) {
-    console.warn(`updateMediaItem: POST failed for media ${id}, trying PUT:`, error);
+    // Try PUT as fallback
     // Try PUT as fallback
     try {
       const updateData = { ...data };
@@ -393,15 +390,8 @@ export const updateMediaItem = async (id, data) => {
         updateData.post = data.post;
       }
       const response = await api.put(`/media/${id}`, updateData);
-      console.log(`updateMediaItem: Successfully updated media ${id} via PUT:`, response.data);
       return response.data;
     } catch (putError) {
-      console.error(`updateMediaItem: Both POST and PUT failed for media ${id}:`, putError);
-      // Log the error details
-      if (putError.response) {
-        console.error('updateMediaItem: Response data:', putError.response.data);
-        console.error('updateMediaItem: Response status:', putError.response.status);
-      }
       throw putError;
     }
   }

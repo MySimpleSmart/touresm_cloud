@@ -155,17 +155,13 @@ const buildMediaUrl = (media) => {
 
 const getGalleryFromAttachments = async (listingId) => {
   if (!listingId) {
-    console.warn('getGalleryFromAttachments: No listingId provided');
     return [];
   }
   
   try {
-    console.log('getGalleryFromAttachments: Fetching attachments for listing', listingId);
     const attachments = await getMediaByParent(listingId);
-    console.log('getGalleryFromAttachments: Received attachments', attachments);
     
     if (!Array.isArray(attachments) || attachments.length === 0) {
-      console.log('getGalleryFromAttachments: No attachments found');
       return [];
     }
     
@@ -174,10 +170,8 @@ const getGalleryFromAttachments = async (listingId) => {
         try {
           const mediaId = media.id || media.ID;
           const mediaUrl = buildMediaUrl(media);
-          console.log(`getGalleryFromAttachments: Processing attachment ${index}`, { mediaId, mediaUrl, media });
           
           if (!mediaId) {
-            console.warn(`getGalleryFromAttachments: Attachment ${index} has no ID`, media);
             return null;
           }
           
@@ -188,26 +182,18 @@ const getGalleryFromAttachments = async (listingId) => {
           });
           
           if (!normalized || !normalized.id) {
-            console.warn(`getGalleryFromAttachments: Failed to normalize attachment ${index}`, media);
             return null;
           }
           
           return normalized;
         } catch (mediaError) {
-          console.error(`getGalleryFromAttachments: Error processing attachment ${index}:`, mediaError, media);
           return null;
         }
       })
       .filter(Boolean);
     
-    console.log('getGalleryFromAttachments: Normalized attachments', normalizedAttachments);
     return normalizedAttachments;
   } catch (error) {
-    console.error('getGalleryFromAttachments: Error fetching gallery attachments:', error);
-    if (error.response) {
-      console.error('getGalleryFromAttachments: Response data:', error.response.data);
-      console.error('getGalleryFromAttachments: Response status:', error.response.status);
-    }
     return [];
   }
 };
@@ -531,10 +517,6 @@ const ListingForm = () => {
       setLoading(true);
       const listing = await getListing(id);
       
-      console.log('Loaded listing:', listing);
-      console.log('Listing meta:', listing.meta);
-      console.log('Listing gallery from meta:', listing.meta?.listing_gallery);
-      
       // Ensure taxonomies are loaded
       let locationsData = taxonomies.locations || [];
       let amenitiesData = taxonomies.amenities || [];
@@ -586,80 +568,55 @@ const ListingForm = () => {
         galleryImages = Array.isArray(listing.meta.listing_gallery) 
           ? listing.meta.listing_gallery 
           : [listing.meta.listing_gallery];
-        console.log('Found gallery images in meta.listing_gallery:', galleryImages);
       } else if (listing.listing_gallery) {
         galleryImages = Array.isArray(listing.listing_gallery) 
           ? listing.listing_gallery 
           : [listing.listing_gallery];
-        console.log('Found gallery images in listing_gallery:', galleryImages);
       } else if (listing.acf && listing.acf.listing_gallery) {
         galleryImages = Array.isArray(listing.acf.listing_gallery) 
           ? listing.acf.listing_gallery 
           : [listing.acf.listing_gallery];
-        console.log('Found gallery images in acf.listing_gallery:', galleryImages);
       }
 
       let normalizedGallery = [];
 
       if (galleryImages && galleryImages.length > 0) {
-        console.log('Processing gallery images:', galleryImages);
-        console.log('First image structure:', galleryImages[0]);
         try {
           const galleryPromises = galleryImages.map(async (img, index) => {
             try {
-              console.log(`Processing image ${index}:`, img);
-              console.log(`Image ${index} keys:`, Object.keys(img || {}));
-              console.log(`Image ${index} guid:`, img.guid);
-              console.log(`Image ${index} guid type:`, typeof img.guid);
               
               // Extract image ID first (handle both 'ID' and 'id' fields)
               const imageId = img.ID || img.id || img.media_id || img.image_id || img.attachment_id;
-              console.log(`Image ${index} extracted ID:`, imageId, 'from keys:', Object.keys(img || {}));
               
               if (imageId) {
                 const numericId = typeof imageId === 'string' ? parseInt(imageId, 10) : imageId;
                 if (!isNaN(numericId) && numericId > 0) {
                   // Always fetch the full media object from REST API to get proper URLs
                   try {
-                    console.log(`Fetching media data for ID ${numericId}`);
                     const mediaData = await getMedia(numericId);
-                    console.log(`Fetched media data for ID ${numericId}:`, mediaData);
-                    console.log(`Media ${numericId} source_url:`, mediaData.source_url);
-                    console.log(`Media ${numericId} guid:`, mediaData.guid);
-                    console.log(`Media ${numericId} guid.rendered:`, mediaData.guid?.rendered);
                     
                     // Normalize the fetched media object
                     const normalized = normalizeImageData(mediaData);
-                    console.log(`Normalized image ${index} from API:`, normalized);
-                    console.log(`Normalized image ${index} URL:`, normalized.url);
-                    console.log(`Normalized image ${index} source_url:`, normalized.source_url);
                     
                     // Ensure URL is present - use source_url from REST API response
                     if (mediaData.source_url) {
                       normalized.url = mediaData.source_url;
                       normalized.source_url = mediaData.source_url;
-                      console.log(`Image ${index} URL set from source_url:`, mediaData.source_url);
                     } else if (mediaData.guid?.rendered) {
                       normalized.url = mediaData.guid.rendered;
                       normalized.source_url = mediaData.guid.rendered;
-                      console.log(`Image ${index} URL set from guid.rendered:`, mediaData.guid.rendered);
                     } else if (mediaData.media_details?.sizes?.large?.source_url) {
                       normalized.url = mediaData.media_details.sizes.large.source_url;
                       normalized.source_url = mediaData.media_details.sizes.large.source_url;
-                      console.log(`Image ${index} URL set from media_details:`, mediaData.media_details.sizes.large.source_url);
                     }
                     
                     // Final check - if still no URL, log error
                     if (!normalized.url && !normalized.source_url) {
-                      console.error(`Image ${index} has no URL after all extraction attempts`, {
-                        mediaData,
-                        normalized
-                      });
+                      // keep silent in production
                     }
                     
                     return normalized;
                   } catch (mediaError) {
-                    console.error(`Error fetching media ${numericId}:`, mediaError);
                     // Try to extract URL from the original post object
                     // WordPress post objects might have guid as a string or in postmeta
                     let url = null;
@@ -681,10 +638,8 @@ const ListingForm = () => {
                         url: url,
                         source_url: url,
                       });
-                      console.log(`Image ${index} normalized from fallback with URL:`, normalized);
                       return normalized;
                     } else {
-                      console.error(`Image ${index} could not extract URL from original object`, img);
                       // Return null so it's filtered out
                       return null;
                     }
@@ -693,50 +648,32 @@ const ListingForm = () => {
               }
               
               // If we can't extract an ID, log and return null
-              console.error(`Image ${index} has no extractable ID`, img);
               return null;
             } catch (imgError) {
-              console.error(`Error processing image ${index}:`, imgError, img);
               return null;
             }
           });
           normalizedGallery = (await Promise.all(galleryPromises)).filter(Boolean);
-          console.log('Normalized gallery after processing:', normalizedGallery);
-          // Log each image to see if URLs are present
-          normalizedGallery.forEach((img, idx) => {
-            console.log(`Normalized image ${idx}:`, {
-              id: img.id,
-              url: img.url,
-              source_url: img.source_url,
-              hasUrl: !!(img.url || img.source_url)
-            });
-          });
         } catch (galleryError) {
-          console.error('Error processing gallery images:', galleryError);
+          // silent
         }
       }
 
       // Always prefer attachments (media items whose parent is this listing)
       if (listing.id) {
-        console.log('Fetching attachments for listing ID (source of truth for gallery):', listing.id);
         try {
           const attachmentGallery = await getGalleryFromAttachments(listing.id);
-          console.log('Gallery from attachments:', attachmentGallery);
           if (attachmentGallery && attachmentGallery.length > 0) {
             normalizedGallery = attachmentGallery;
           }
         } catch (attachmentError) {
-          console.error('Error fetching gallery from attachments:', attachmentError);
+          // silent
         }
       }
-      
-      console.log('Final normalized gallery:', normalizedGallery);
       
       const galleryIds = (normalizedGallery || [])
         .map((img) => extractImageId(img))
         .filter((imageId) => imageId !== null && imageId !== undefined);
-      
-      console.log('Final gallery IDs:', galleryIds);
       
       // Map listing data to form data
       setFormData({
@@ -762,11 +699,7 @@ const ListingForm = () => {
       setInitialGalleryIds(galleryIds);
     } catch (err) {
       setError('Failed to load listing. Please try again.');
-      console.error('Error loading listing:', err);
-      if (err.response) {
-        console.error('Response data:', err.response.data);
-        console.error('Response status:', err.response.status);
-      }
+      // silent
     } finally {
       setLoading(false);
     }
@@ -811,14 +744,11 @@ const ListingForm = () => {
         const imageId = extractImageId(img);
         // Skip images that are still uploading (temp IDs or no ID)
         if (!imageId || (typeof imageId === 'string' && imageId.toString().startsWith('temp-'))) {
-          console.warn('Skipping image that is still uploading:', img);
           return false;
         }
         return true;
       });
 
-      console.log('Ready images before save:', readyImages);
-      
       // Combine parent and child location into listing_location
       const locationToSave = formData.child_location 
         ? [formData.child_location]
@@ -847,7 +777,6 @@ const ListingForm = () => {
       };
 
       const galleryImageIds = formatGalleryImages(readyImages);
-      console.log('Gallery image IDs to save:', galleryImageIds);
       
       // Prepare data for WordPress REST API
       const submitData = {
@@ -890,22 +819,16 @@ const ListingForm = () => {
         throw new Error('Failed to get listing ID after save');
       }
 
-      console.log('Listing saved with ID:', listingId);
-      console.log('Linking images to listing:', readyImages);
-
       // For new listings, link all attachments to the listing
       // For existing listings, sync attachments (link/unlink as needed)
       await syncGalleryAttachments(listingId, readyImages, galleryImageIds);
       
       // Force save gallery meta field - try multiple methods
       if (galleryImageIds && galleryImageIds.length > 0) {
-        console.log('Saving gallery meta field with IDs:', galleryImageIds);
         // Method 1: Separate meta update call
         try {
           const metaResponse = await updateListingMetaField(listingId, 'listing_gallery', galleryImageIds);
-          console.log('Gallery meta field saved successfully:', metaResponse);
         } catch (metaError1) {
-          console.warn('Method 1 failed, trying Method 2:', metaError1);
           // Method 2: Full update with just meta
           try {
             const metaResponse2 = await updateListing(listingId, {
@@ -913,9 +836,7 @@ const ListingForm = () => {
                 listing_gallery: galleryImageIds,
               },
             });
-            console.log('Gallery meta field saved via Method 2:', metaResponse2);
           } catch (metaError2) {
-            console.warn('Method 2 failed, trying Method 3:', metaError2);
             // Method 3: Full update with all fields including meta
             try {
               const fullUpdateData = {
@@ -926,20 +847,16 @@ const ListingForm = () => {
                 },
               };
               const metaResponse3 = await updateListing(listingId, fullUpdateData);
-              console.log('Gallery meta field saved via Method 3:', metaResponse3);
             } catch (metaError3) {
-              console.error('All methods failed to save gallery meta field:', metaError3);
               // Don't throw error, just log it - the attachments should still be linked
             }
           }
         }
       } else {
-        console.log('Clearing gallery meta field');
         // Clear the meta field if gallery is empty
         try {
           await updateListingMetaField(listingId, 'listing_gallery', []);
         } catch (clearError) {
-          console.warn('Failed to clear gallery meta field:', clearError);
           // Try alternative method
           try {
             await updateListing(listingId, {
@@ -948,7 +865,6 @@ const ListingForm = () => {
               },
             });
           } catch (clearError2) {
-            console.warn('Alternative clear method also failed:', clearError2);
             // Ignore if clearing fails
           }
         }
@@ -957,10 +873,8 @@ const ListingForm = () => {
       // Verify the save by fetching the listing again
       try {
         const verification = await getListing(listingId);
-        console.log('Verification - Listing meta:', verification.meta);
-        console.log('Verification - Listing gallery from meta:', verification.meta?.listing_gallery);
       } catch (verifyError) {
-        console.warn('Could not verify listing save:', verifyError);
+        // silent
       }
       
       navigate('/listings');
@@ -973,11 +887,7 @@ const ListingForm = () => {
       } else {
         setError('Failed to save listing. Please check your permissions and try again.');
       }
-      console.error('Error saving listing:', err);
-      if (err.response) {
-        console.error('Response data:', err.response.data);
-        console.error('Response status:', err.response.status);
-      }
+      // silent
     } finally {
       setSaving(false);
     }
