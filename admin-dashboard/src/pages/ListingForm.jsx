@@ -828,21 +828,33 @@ const ListingForm = () => {
       
       // Prepare data for WordPress REST API
       const submitData = {
-        title: formData.listing_name,
-        content: formData.listing_description,
+        // WordPress core fields
+        title: formData.listing_name || '',
+        content: formData.listing_description || '',
         status: 'publish',
+        // Duplicate key fields at top-level for Pods CPT mappings
+        listing_name: formData.listing_name || '',
+        listing_description: formData.listing_description || '',
+        listing_price: formData.listing_price || '',
+        listing_social_url: formData.listing_social_url || '',
+        listing_video: formData.listing_video || '',
+        room_number: formData.room_number || '',
+        listing_bed_number: formData.listing_bed_number || '',
+        guest_max_number: formData.guest_max_number || '',
+        check_in_time: formData.check_in_time || '',
+        check_out_time: formData.check_out_time || '',
+        // Also persist in meta for setups that read from meta (Pods/ACF variations)
         meta: {
-          listing_name: formData.listing_name,
-          listing_description: formData.listing_description,
-          listing_price: formData.listing_price,
-          listing_social_url: formData.listing_social_url,
-          listing_video: formData.listing_video,
-          room_number: formData.room_number,
-          listing_bed_number: formData.listing_bed_number,
-          guest_max_number: formData.guest_max_number,
-          check_in_time: formData.check_in_time,
-          check_out_time: formData.check_out_time,
-          // Also persist in meta for setups that read from meta (Pods/ACF variations)
+          listing_name: formData.listing_name || '',
+          listing_description: formData.listing_description || '',
+          listing_price: formData.listing_price || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_video: formData.listing_video || '',
+          room_number: formData.room_number || '',
+          listing_bed_number: formData.listing_bed_number || '',
+          guest_max_number: formData.guest_max_number || '',
+          check_in_time: formData.check_in_time || '',
+          check_out_time: formData.check_out_time || '',
           listing_gallery: galleryImageIds,
         },
         // Pods relationship field: array of attachment IDs (drives the backend "Зурагүүд" field)
@@ -871,13 +883,67 @@ const ListingForm = () => {
       // For existing listings, sync attachments (link/unlink as needed)
       await syncGalleryAttachments(listingId, readyImages, galleryImageIds);
       
-      // Ensure Pods field reflects the gallery (so wp-admin Pods UI shows everything)
+      // Ensure Pods fields reflect values so wp-admin shows everything
       try {
-        await updatePodsItemFields('touresm-listing', listingId, {
+        await updatePodsItemFields('touresm-listing', Number(listingId), {
+          listing_name: formData.listing_name || '',
+          listing_description: formData.listing_description || '',
+          listing_price: formData.listing_price || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_video: formData.listing_video || '',
+          room_number: formData.room_number || '',
+          listing_bed_number: formData.listing_bed_number || '',
+          guest_max_number: formData.guest_max_number || '',
+          check_in_time: formData.check_in_time || '',
+          check_out_time: formData.check_out_time || '',
           listing_gallery: galleryImageIds,
+          listing_aminities: formatTaxonomy(formData.listing_aminities),
+          listing_location: locationToSave,
+          listing_region: locationToSave,
+          listing_size: formatTaxonomy(formData.listing_size),
         });
       } catch (podsErr) {
         // silent; other methods below will still try to persist
+      }
+      
+      // Force-save all custom fields into WP REST meta/top-level as fallback
+      try {
+        const allMeta = {
+          listing_name: formData.listing_name || '',
+          listing_description: formData.listing_description || '',
+          listing_price: formData.listing_price || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_video: formData.listing_video || '',
+          room_number: formData.room_number || '',
+          listing_bed_number: formData.listing_bed_number || '',
+          guest_max_number: formData.guest_max_number || '',
+          check_in_time: formData.check_in_time || '',
+          check_out_time: formData.check_out_time || '',
+          listing_gallery: galleryImageIds,
+        };
+        await updateListing(listingId, {
+          title: formData.listing_name || '',
+          content: formData.listing_description || '',
+          meta: allMeta,
+          listing_name: formData.listing_name || '',
+          listing_description: formData.listing_description || '',
+          listing_price: formData.listing_price || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_video: formData.listing_video || '',
+          room_number: formData.room_number || '',
+          listing_bed_number: formData.listing_bed_number || '',
+          guest_max_number: formData.guest_max_number || '',
+          check_in_time: formData.check_in_time || '',
+          check_out_time: formData.check_out_time || '',
+          listing_gallery: galleryImageIds,
+          listing_category: formatTaxonomy(formData.listing_category),
+          listing_size: formatTaxonomy(formData.listing_size),
+          listing_location: locationToSave,
+          listing_region: locationToSave,
+          listing_aminities: formatTaxonomy(formData.listing_aminities),
+        });
+      } catch (_forceErr) {
+        // ignore; verification below will catch issues
       }
       
       // Force save gallery meta field - try multiple methods
