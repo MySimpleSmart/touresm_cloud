@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getListing, getAmenities, getCategories, getLocations, getSizes } from '../services/api';
+import { getListing, getAmenities, getCategories, getLocations, getSizes, getMedia, getMediaByParent } from '../services/api';
 import ImageGallery from './ImageGallery';
 import CustomDatePicker from './DatePicker';
 
@@ -32,7 +32,69 @@ const ListingDetail = () => {
         setLoading(false);
         return;
       }
-      setListing(listingData);
+
+      // Resolve gallery to actual URLs
+      let resolvedGallery = [];
+      const rawGallery = listingData.listing_gallery;
+      if (rawGallery && Array.isArray(rawGallery) && rawGallery.length > 0) {
+        // If gallery contains numbers or objects without URL, fetch media details
+        const items = await Promise.allSettled(
+          rawGallery.map(async (img) => {
+            if (typeof img === 'string') return img;
+            if (typeof img === 'object' && (img.url || img.source_url || img.guid || img.src)) {
+              return img.url || img.source_url || img.guid || img.src;
+            }
+            const mediaId =
+              typeof img === 'number'
+                ? img
+                : img && (img.id || img.ID || img.media_id || img.image_id || img.attachment_id);
+            if (!mediaId) return null;
+            try {
+              const media = await getMedia(mediaId);
+              return (
+                media?.source_url ||
+                media?.media_details?.sizes?.large?.source_url ||
+                media?.guid?.rendered ||
+                null
+              );
+            } catch {
+              return null;
+            }
+          })
+        );
+        resolvedGallery = items
+          .map((r) => (r.status === 'fulfilled' ? r.value : null))
+          .filter(Boolean);
+      }
+
+      // Always prefer attachments (media whose parent/post_parent is this listing)
+      if (listingData.id) {
+        try {
+          const attachments = await getMediaByParent(listingData.id);
+          const attachmentUrls = (attachments || [])
+            .map(
+              (att) =>
+                att?.source_url ||
+                att?.media_details?.sizes?.large?.source_url ||
+                att?.guid?.rendered ||
+                null
+            )
+            .filter(Boolean);
+          if (attachmentUrls.length > 0) {
+            resolvedGallery = attachmentUrls;
+          }
+        } catch {
+          // ignore, fall back to resolvedGallery from rawGallery
+        }
+      }
+
+      setListing({
+        ...listingData,
+        listing_gallery:
+          resolvedGallery && resolvedGallery.length > 0
+            ? resolvedGallery
+            : listingData.listing_gallery,
+      });
       
       // Fetch taxonomies separately with error handling so one failure doesn't break everything
       try {
@@ -843,7 +905,7 @@ const ListingDetail = () => {
                       const locationDisplays = getAllLocationDisplays(listing.listing_location, locations);
                       return locationDisplays.length > 0 ? (
                         <div className="flex flex-wrap items-center gap-2 text-lg">
-                          <svg
+                    <svg
                             className="h-5 w-5 text-gray-600"
                       fill="none"
                       stroke="currentColor"
@@ -873,8 +935,8 @@ const ListingDetail = () => {
                               {locationDisplays.length > 0 && <span>, </span>}
                               {listing.listing_familiar_location}
                             </span>
-                          )}
-                        </div>
+                )}
+              </div>
                       ) : null;
                     })()}
                     {(() => {
@@ -960,8 +1022,8 @@ const ListingDetail = () => {
                         />
                       </svg>
                       Watch Video
-                    </a>
-                  )}
+                </a>
+              )}
             </div>
           </div>
 
@@ -1182,7 +1244,7 @@ const ListingDetail = () => {
                         <p className="text-sm text-gray-500">Contact the host for pricing</p>
                       </>
                     )}
-                  </div>
+        </div>
 
                   <div className="space-y-4">
                     <div>

@@ -21,11 +21,15 @@ const getCurrentUserForAuth = () => {
 // Add request interceptor to include authentication
 api.interceptors.request.use(
   (config) => {
+    // Don't override Content-Type for FormData (file uploads)
+    if (config.data instanceof FormData) {
+      delete config.headers['Content-Type'];
+    }
+    
     // Try JWT token first
     const jwtToken = localStorage.getItem('jwt_token');
     if (jwtToken) {
       config.headers['Authorization'] = `Bearer ${jwtToken}`;
-      console.log('Using JWT token for authentication');
     }
     
     // If no JWT token, try Application Password (Basic Auth)
@@ -38,7 +42,6 @@ api.interceptors.request.use(
             username,
             password,
           };
-          console.log('Using Application Password for authentication');
         } catch (e) {
           // Ignore if credentials can't be parsed
         }
@@ -108,9 +111,7 @@ export const login = async (username, password) => {
       );
       
       if (jwtResponse.data && jwtResponse.data.token) {
-        // Store JWT token
         localStorage.setItem('jwt_token', jwtResponse.data.token);
-        console.log('JWT token obtained and stored');
         
         // Store user info
         const userData = jwtResponse.data.user || {
@@ -128,7 +129,7 @@ export const login = async (username, password) => {
         return userData;
       }
     } catch (jwtError) {
-      console.log('JWT authentication failed, trying Application Password...', jwtError);
+      console.error('JWT authentication failed, trying Application Password...', jwtError);
     }
     
     // Try Application Password authentication (WordPress 5.6+)
@@ -162,7 +163,7 @@ export const login = async (username, password) => {
         return userData;
       }
     } catch (appPasswordError) {
-      console.log('Application Password authentication failed', appPasswordError);
+      console.error('Application Password authentication failed', appPasswordError);
       // If it's a 401, the credentials are wrong
       if (appPasswordError.response && appPasswordError.response.status === 401) {
         throw new Error('Invalid username or application password. Please check your credentials.');
@@ -206,8 +207,34 @@ export const getListings = async (params = {}) => {
 
 export const getListing = async (id) => {
   try {
-    const response = await api.get(`/touresm-listing/${id}`);
-    return response.data;
+    // Get the full listing with _embed to include related resources
+    // Don't use _fields as it might exclude meta fields if they're not registered with show_in_rest
+    const response = await api.get(`/touresm-listing/${id}`, {
+      params: { 
+        _embed: true,
+        // Include context=edit to get more data (requires authentication)
+        context: 'edit',
+      },
+    });
+    
+    let listingData = response.data;
+    
+    // WordPress REST API may not return custom meta fields unless they're registered with show_in_rest
+    // Check if meta field is missing and try alternative approaches
+    if (!listingData.meta || !listingData.meta.listing_gallery) {
+      console.log('Meta field not found in response, trying without context=edit');
+      try {
+        // Try without context=edit (some setups don't support it)
+        const altResponse = await api.get(`/touresm-listing/${id}`, {
+          params: { _embed: true },
+        });
+        listingData = altResponse.data;
+      } catch (altError) {
+        console.warn('Alternative fetch method failed:', altError);
+      }
+    }
+    
+    return listingData;
   } catch (error) {
     console.error('Error fetching listing:', error);
     throw error;
@@ -220,18 +247,12 @@ export const createListing = async (data) => {
     return response.data;
   } catch (error) {
     console.error('Error creating listing:', error);
-    if (error.response) {
-      console.error('Response data:', error.response.data);
-      console.error('Response status:', error.response.status);
-      
-      // Provide user-friendly error messages
-      if (error.response.status === 401) {
-        const errorData = error.response.data;
-        if (errorData && errorData.code === 'rest_cannot_create') {
-          throw new Error('Permission denied: You do not have permission to create listings. Please contact your WordPress administrator to grant you Editor or Administrator role.');
-        }
-        throw new Error('Authentication failed. Please log out and log back in with your Application Password.');
+    if (error.response && error.response.status === 401) {
+      const errorData = error.response.data;
+      if (errorData && errorData.code === 'rest_cannot_create') {
+        throw new Error('Permission denied: You do not have permission to create listings. Please contact your WordPress administrator to grant you Editor or Administrator role.');
       }
+      throw new Error('Authentication failed. Please log out and log back in with your Application Password.');
     }
     throw error;
   }
@@ -239,37 +260,27 @@ export const createListing = async (data) => {
 
 export const updateListing = async (id, data) => {
   try {
-    // WordPress REST API uses PUT for updates, but some setups use POST
-    // Try PUT first, fallback to POST if needed
     try {
       const response = await api.put(`/touresm-listing/${id}`, data);
       return response.data;
     } catch (putError) {
-      // If PUT fails with 401, check if it's a permissions issue
       if (putError.response && putError.response.status === 401) {
         const errorData = putError.response.data;
         if (errorData && errorData.code === 'rest_cannot_edit') {
           throw new Error('You do not have permission to edit this listing. Please ensure your WordPress user has Administrator or Editor role, and the custom post type allows editing.');
         }
       }
-      // If PUT fails, try POST (some WordPress setups require POST)
       const response = await api.post(`/touresm-listing/${id}`, data);
       return response.data;
     }
   } catch (error) {
     console.error('Error updating listing:', error);
-    if (error.response) {
-      console.error('Response data:', error.response.data);
-      console.error('Response status:', error.response.status);
-      
-      // Provide user-friendly error messages
-      if (error.response.status === 401) {
-        const errorData = error.response.data;
-        if (errorData && errorData.code === 'rest_cannot_edit') {
-          throw new Error('Permission denied: You do not have permission to edit listings. Please contact your WordPress administrator to grant you Editor or Administrator role.');
-        }
-        throw new Error('Authentication failed. Please log out and log back in with your Application Password.');
+    if (error.response && error.response.status === 401) {
+      const errorData = error.response.data;
+      if (errorData && errorData.code === 'rest_cannot_edit') {
+        throw new Error('Permission denied: You do not have permission to edit listings. Please contact your WordPress administrator to grant you Editor or Administrator role.');
       }
+      throw new Error('Authentication failed. Please log out and log back in with your Application Password.');
     }
     throw error;
   }
@@ -284,6 +295,142 @@ export const deleteListing = async (id) => {
   } catch (error) {
     console.error('Error deleting listing:', error);
     throw error;
+  }
+};
+
+// Media/Image Upload
+export const uploadMedia = async (file, parentId = null) => {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (parentId) {
+      formData.append('post', parentId);
+    }
+    
+    const response = await api.post('/media', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    const mediaData = response.data;
+    return {
+      id: mediaData.id || mediaData.ID,
+      source_url: mediaData.source_url || mediaData.guid?.rendered || mediaData.url || mediaData.link,
+      url: mediaData.source_url || mediaData.guid?.rendered || mediaData.url || mediaData.link,
+      ...mediaData,
+    };
+  } catch (error) {
+    console.error('Error uploading media:', error);
+    throw error;
+  }
+};
+
+export const deleteMedia = async (id) => {
+  try {
+    const response = await api.delete(`/media/${id}`, {
+      params: { force: true },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error deleting media:', error);
+    throw error;
+  }
+};
+
+export const getMedia = async (id) => {
+  try {
+    const response = await api.get(`/media/${id}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching media:', error);
+    throw error;
+  }
+};
+
+export const getMediaByParent = async (parentId, params = {}) => {
+  try {
+    const response = await api.get('/media', {
+      params: {
+        parent: parentId,
+        per_page: 100,
+        ...params,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching media by parent:', error);
+    throw error;
+  }
+};
+
+export const updateMediaItem = async (id, data) => {
+  try {
+    console.log(`updateMediaItem: Updating media ${id} with data:`, data);
+    
+    // WordPress REST API uses POST for media updates
+    // The 'post' field should map to 'post_parent' in WordPress
+    const updateData = { ...data };
+    if (data.post !== undefined) {
+      // WordPress REST API expects 'post' to be the parent post ID
+      // Some setups might need 'post_parent' instead
+      updateData.post_parent = data.post;
+      updateData.post = data.post;
+    }
+    
+    // WordPress REST API might need the data in a specific format
+    // Try POST first (WordPress standard for media updates)
+    const response = await api.post(`/media/${id}`, updateData);
+    console.log(`updateMediaItem: Successfully updated media ${id}:`, response.data);
+    return response.data;
+  } catch (error) {
+    console.warn(`updateMediaItem: POST failed for media ${id}, trying PUT:`, error);
+    // Try PUT as fallback
+    try {
+      const updateData = { ...data };
+      if (data.post !== undefined) {
+        updateData.post_parent = data.post;
+        updateData.post = data.post;
+      }
+      const response = await api.put(`/media/${id}`, updateData);
+      console.log(`updateMediaItem: Successfully updated media ${id} via PUT:`, response.data);
+      return response.data;
+    } catch (putError) {
+      console.error(`updateMediaItem: Both POST and PUT failed for media ${id}:`, putError);
+      // Log the error details
+      if (putError.response) {
+        console.error('updateMediaItem: Response data:', putError.response.data);
+        console.error('updateMediaItem: Response status:', putError.response.status);
+      }
+      throw putError;
+    }
+  }
+};
+
+// Force update listing meta field (separate call to ensure it's saved)
+export const updateListingMetaField = async (listingId, metaKey, metaValue) => {
+  try {
+    // Try updating just the meta field via POST
+    const response = await api.post(`/touresm-listing/${listingId}`, {
+      meta: {
+        [metaKey]: metaValue,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error updating meta field ${metaKey}:`, error);
+    // Try PUT as fallback
+    try {
+      const response = await api.put(`/touresm-listing/${listingId}`, {
+        meta: {
+          [metaKey]: metaValue,
+        },
+      });
+      return response.data;
+    } catch (putError) {
+      console.error(`Error updating meta field ${metaKey} via PUT:`, putError);
+      throw putError;
+    }
   }
 };
 
@@ -388,11 +535,10 @@ export const getBookings = async (params = {}) => {
   } catch (error) {
     // If endpoint doesn't exist, return empty array instead of throwing
     if (error.response && error.response.status === 404) {
-      console.warn('Bookings endpoint not found, returning empty array');
       return [];
     }
-    console.error('Error fetching bookings:', error);
-    throw error;
+    // Silently return empty array for bookings endpoint not found
+    return [];
   }
 };
 

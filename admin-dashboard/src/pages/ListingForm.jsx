@@ -8,7 +8,209 @@ import {
   getLocations,
   getAmenities,
   getSizes,
+  getMedia,
+  getMediaByParent,
+  updateMediaItem,
+  updateListingMetaField,
 } from '../services/api';
+import ImageGalleryUpload from '../components/ImageGalleryUpload';
+
+const extractImageId = (img) => {
+  if (!img) return null;
+  if (typeof img === 'number') return img;
+  if (typeof img === 'string') return null;
+  if (typeof img === 'object') {
+    return (
+      img.id ||
+      img.ID ||
+      img.media_id ||
+      img.image_id ||
+      img.attachment_id ||
+      (img.meta && (img.meta.id || img.meta.image_id)) ||
+      null
+    );
+  }
+  return null;
+};
+
+const extractImageUrl = (img) => {
+  if (!img) return null;
+  if (typeof img === 'string') return img;
+  if (typeof img === 'object') {
+    // Try buildMediaUrl first for WordPress media objects
+    const mediaUrl = buildMediaUrl(img);
+    if (mediaUrl) return mediaUrl;
+    
+    // Fallback to direct field access
+    return (
+      img.url ||
+      img.source_url ||
+      img.image_url ||
+      img.guid?.rendered ||
+      (typeof img.guid === 'string' ? img.guid : null) ||
+      img.src ||
+      (img.meta && (img.meta.url || img.meta.source_url)) ||
+      // WordPress REST API might return URL in different places
+      img.media_details?.sizes?.large?.source_url ||
+      img.media_details?.sizes?.medium_large?.source_url ||
+      img.media_details?.sizes?.medium?.source_url ||
+      img.media_details?.sizes?.thumbnail?.source_url ||
+      null
+    );
+  }
+  return null;
+};
+
+const normalizeImageData = (img) => {
+  if (!img) return null;
+  const id = extractImageId(img);
+  let url = extractImageUrl(img);
+  
+  // If extractImageUrl didn't find a URL, try buildMediaUrl
+  if (!url && img && typeof img === 'object') {
+    url = buildMediaUrl(img);
+  }
+  
+  const normalizedId =
+    typeof id === 'string' && id
+      ? Number.isNaN(parseInt(id, 10))
+        ? id
+        : parseInt(id, 10)
+      : id;
+  
+  const normalized = {
+    ...((typeof img === 'object' && img !== null) ? img : {}),
+    id: normalizedId || null,
+    url: url || null,
+    source_url: url || null,
+  };
+  
+  // Ensure we have a valid URL - try constructing from ID if we have one
+  if (!normalized.url && !normalized.source_url && normalized.id) {
+    // WordPress media URL pattern: https://site.com/wp-content/uploads/YYYY/MM/filename.jpg
+    // We can't construct this without the filename, so we'll need to fetch it
+    // But for now, log a warning
+    console.warn('normalizeImageData: No URL found for image', { id: normalized.id, img });
+  }
+  
+  return normalized;
+};
+
+const formatGalleryImages = (gallery) => {
+  if (!gallery || (Array.isArray(gallery) && gallery.length === 0)) return [];
+  return gallery
+    .map((img) => {
+      const id = extractImageId(img);
+      if (id === null || Number.isNaN(id)) return null;
+      return typeof id === 'string' ? parseInt(id, 10) : id;
+    })
+    .filter((id) => id !== null && !Number.isNaN(id));
+};
+
+const buildMediaUrl = (media) => {
+  if (!media) return null;
+  
+  // Try various URL fields that WordPress REST API might return
+  let url = 
+    media.source_url ||
+    media.media_details?.sizes?.large?.source_url ||
+    media.media_details?.sizes?.medium_large?.source_url ||
+    media.media_details?.sizes?.medium?.source_url ||
+    media.media_details?.sizes?.thumbnail?.source_url ||
+    media.guid?.rendered ||
+    media.url ||
+    media.link ||
+    // Sometimes WordPress returns the URL in different places
+    (typeof media.guid === 'string' ? media.guid : null) ||
+    // Check if it's an embedded media object
+    media._embedded?.['wp:featuredmedia']?.[0]?.source_url ||
+    null;
+  
+  // If still no URL, check for WordPress attachment post structure
+  // WordPress attachment posts might have guid as object or string
+  if (!url && media.guid) {
+    if (typeof media.guid === 'object' && media.guid.rendered) {
+      url = media.guid.rendered;
+    } else if (typeof media.guid === 'string') {
+      url = media.guid;
+    }
+  }
+  
+  // If we have an ID but no URL, we'll need to fetch it
+  // But for now, log what we have
+  if (!url) {
+    console.log('buildMediaUrl: No URL found, media structure:', {
+      hasSourceUrl: !!media.source_url,
+      hasGuid: !!media.guid,
+      hasGuidRendered: !!media.guid?.rendered,
+      hasMediaDetails: !!media.media_details,
+      hasUrl: !!media.url,
+      hasLink: !!media.link,
+      mediaKeys: Object.keys(media || {})
+    });
+  }
+  
+  return url;
+};
+
+const getGalleryFromAttachments = async (listingId) => {
+  if (!listingId) {
+    console.warn('getGalleryFromAttachments: No listingId provided');
+    return [];
+  }
+  
+  try {
+    console.log('getGalleryFromAttachments: Fetching attachments for listing', listingId);
+    const attachments = await getMediaByParent(listingId);
+    console.log('getGalleryFromAttachments: Received attachments', attachments);
+    
+    if (!Array.isArray(attachments) || attachments.length === 0) {
+      console.log('getGalleryFromAttachments: No attachments found');
+      return [];
+    }
+    
+    const normalizedAttachments = attachments
+      .map((media, index) => {
+        try {
+          const mediaId = media.id || media.ID;
+          const mediaUrl = buildMediaUrl(media);
+          console.log(`getGalleryFromAttachments: Processing attachment ${index}`, { mediaId, mediaUrl, media });
+          
+          if (!mediaId) {
+            console.warn(`getGalleryFromAttachments: Attachment ${index} has no ID`, media);
+            return null;
+          }
+          
+          const normalized = normalizeImageData({
+            id: mediaId,
+            url: mediaUrl,
+            source_url: mediaUrl,
+          });
+          
+          if (!normalized || !normalized.id) {
+            console.warn(`getGalleryFromAttachments: Failed to normalize attachment ${index}`, media);
+            return null;
+          }
+          
+          return normalized;
+        } catch (mediaError) {
+          console.error(`getGalleryFromAttachments: Error processing attachment ${index}:`, mediaError, media);
+          return null;
+        }
+      })
+      .filter(Boolean);
+    
+    console.log('getGalleryFromAttachments: Normalized attachments', normalizedAttachments);
+    return normalizedAttachments;
+  } catch (error) {
+    console.error('getGalleryFromAttachments: Error fetching gallery attachments:', error);
+    if (error.response) {
+      console.error('getGalleryFromAttachments: Response data:', error.response.data);
+      console.error('getGalleryFromAttachments: Response status:', error.response.status);
+    }
+    return [];
+  }
+};
 
 const ListingForm = () => {
   const { id } = useParams();
@@ -40,6 +242,7 @@ const ListingForm = () => {
     parent_location: null,
     child_location: null,
   });
+  const [initialGalleryIds, setInitialGalleryIds] = useState([]);
 
   const [taxonomies, setTaxonomies] = useState({
     categories: [],
@@ -217,10 +420,120 @@ const ListingForm = () => {
     }
   };
 
+  const syncGalleryAttachments = async (listingId, galleryItems, galleryImageIds = []) => {
+    if (!listingId || !Array.isArray(galleryItems)) {
+      console.warn('syncGalleryAttachments: Missing listingId or galleryItems', { listingId, galleryItems });
+      return;
+    }
+    
+    console.log('syncGalleryAttachments: Starting sync', { listingId, galleryItemsCount: galleryItems.length, galleryImageIds });
+    
+    const galleryWithIds = galleryItems
+      .map((img, index) => {
+        const mediaId = extractImageId(img);
+        if (!mediaId) {
+          console.warn(`syncGalleryAttachments: Image ${index} has no ID`, img);
+          return null;
+        }
+        
+        // Skip temporary IDs (strings that start with 'temp-')
+        if (typeof mediaId === 'string' && mediaId.toString().startsWith('temp-')) {
+          console.warn(`syncGalleryAttachments: Image ${index} has temp ID, skipping`, mediaId);
+          return null;
+        }
+        
+        // Only process numeric IDs
+        const normalizedId = typeof mediaId === 'string' ? parseInt(mediaId, 10) : mediaId;
+        if (isNaN(normalizedId) || normalizedId <= 0) {
+          console.warn(`syncGalleryAttachments: Image ${index} has invalid ID`, mediaId, normalizedId);
+          return null;
+        }
+        
+        return {
+          mediaId: normalizedId,
+          order: index,
+        };
+      })
+      .filter(Boolean);
+
+    console.log('syncGalleryAttachments: Processed images', galleryWithIds);
+
+    if (galleryWithIds.length === 0) {
+      console.warn('syncGalleryAttachments: No valid images to sync');
+      return;
+    }
+
+    try {
+      // Link all images to the listing
+      console.log('syncGalleryAttachments: Linking images to listing', listingId);
+      const linkResults = await Promise.allSettled(
+        galleryWithIds.map(({ mediaId, order }) =>
+          updateMediaItem(mediaId, {
+            post: listingId,
+            menu_order: order,
+          }).then((result) => {
+            console.log(`syncGalleryAttachments: Linked image ${mediaId} to listing ${listingId} with order ${order}`, result);
+            return result;
+          }).catch((error) => {
+            console.error(`syncGalleryAttachments: Failed to link image ${mediaId} to listing ${listingId}:`, error);
+            throw error;
+          })
+        )
+      );
+      
+      // Check for any failures
+      const failures = linkResults.filter((result) => result.status === 'rejected');
+      if (failures.length > 0) {
+        console.warn('syncGalleryAttachments: Some images failed to link', failures);
+      }
+
+      // Unlink removed images
+      const removedIds = initialGalleryIds.filter(
+        (existingId) =>
+          !galleryWithIds.some(({ mediaId }) => Number(mediaId) === Number(existingId))
+      );
+
+      if (removedIds.length > 0) {
+        console.log('syncGalleryAttachments: Unlinking removed images', removedIds);
+        await Promise.allSettled(
+          removedIds.map((mediaId) =>
+            updateMediaItem(mediaId, { post: 0 }).then((result) => {
+              console.log(`syncGalleryAttachments: Unlinked image ${mediaId}`, result);
+              return result;
+            }).catch((error) => {
+              console.error(`syncGalleryAttachments: Failed to unlink image ${mediaId}:`, error);
+              // Don't throw - continue with other operations
+            })
+          )
+        );
+      }
+
+      // Update initial gallery IDs
+      if (galleryImageIds && galleryImageIds.length > 0) {
+        setInitialGalleryIds(galleryImageIds);
+      } else {
+        setInitialGalleryIds(galleryWithIds.map(({ mediaId }) => mediaId));
+      }
+      
+      console.log('syncGalleryAttachments: Sync complete', {
+        linked: galleryWithIds.length,
+        unlinked: removedIds.length,
+        finalIds: galleryImageIds.length > 0 ? galleryImageIds : galleryWithIds.map(({ mediaId }) => mediaId),
+      });
+    } catch (attachmentError) {
+      console.error('syncGalleryAttachments: Error syncing gallery attachments:', attachmentError);
+      throw attachmentError; // Re-throw to allow caller to handle
+    }
+  };
+
   const loadListing = async () => {
     try {
       setLoading(true);
       const listing = await getListing(id);
+      
+      console.log('Loaded listing:', listing);
+      console.log('Listing meta:', listing.meta);
+      console.log('Listing gallery from meta:', listing.meta?.listing_gallery);
       
       // Ensure taxonomies are loaded
       let locationsData = taxonomies.locations || [];
@@ -266,30 +579,194 @@ const ListingForm = () => {
         }
       }
       
+      let galleryImages = [];
+      
+      // Try multiple sources for gallery images (meta / direct field / ACF)
+      if (listing.meta && listing.meta.listing_gallery) {
+        galleryImages = Array.isArray(listing.meta.listing_gallery) 
+          ? listing.meta.listing_gallery 
+          : [listing.meta.listing_gallery];
+        console.log('Found gallery images in meta.listing_gallery:', galleryImages);
+      } else if (listing.listing_gallery) {
+        galleryImages = Array.isArray(listing.listing_gallery) 
+          ? listing.listing_gallery 
+          : [listing.listing_gallery];
+        console.log('Found gallery images in listing_gallery:', galleryImages);
+      } else if (listing.acf && listing.acf.listing_gallery) {
+        galleryImages = Array.isArray(listing.acf.listing_gallery) 
+          ? listing.acf.listing_gallery 
+          : [listing.acf.listing_gallery];
+        console.log('Found gallery images in acf.listing_gallery:', galleryImages);
+      }
+
+      let normalizedGallery = [];
+
+      if (galleryImages && galleryImages.length > 0) {
+        console.log('Processing gallery images:', galleryImages);
+        console.log('First image structure:', galleryImages[0]);
+        try {
+          const galleryPromises = galleryImages.map(async (img, index) => {
+            try {
+              console.log(`Processing image ${index}:`, img);
+              console.log(`Image ${index} keys:`, Object.keys(img || {}));
+              console.log(`Image ${index} guid:`, img.guid);
+              console.log(`Image ${index} guid type:`, typeof img.guid);
+              
+              // Extract image ID first (handle both 'ID' and 'id' fields)
+              const imageId = img.ID || img.id || img.media_id || img.image_id || img.attachment_id;
+              console.log(`Image ${index} extracted ID:`, imageId, 'from keys:', Object.keys(img || {}));
+              
+              if (imageId) {
+                const numericId = typeof imageId === 'string' ? parseInt(imageId, 10) : imageId;
+                if (!isNaN(numericId) && numericId > 0) {
+                  // Always fetch the full media object from REST API to get proper URLs
+                  try {
+                    console.log(`Fetching media data for ID ${numericId}`);
+                    const mediaData = await getMedia(numericId);
+                    console.log(`Fetched media data for ID ${numericId}:`, mediaData);
+                    console.log(`Media ${numericId} source_url:`, mediaData.source_url);
+                    console.log(`Media ${numericId} guid:`, mediaData.guid);
+                    console.log(`Media ${numericId} guid.rendered:`, mediaData.guid?.rendered);
+                    
+                    // Normalize the fetched media object
+                    const normalized = normalizeImageData(mediaData);
+                    console.log(`Normalized image ${index} from API:`, normalized);
+                    console.log(`Normalized image ${index} URL:`, normalized.url);
+                    console.log(`Normalized image ${index} source_url:`, normalized.source_url);
+                    
+                    // Ensure URL is present - use source_url from REST API response
+                    if (mediaData.source_url) {
+                      normalized.url = mediaData.source_url;
+                      normalized.source_url = mediaData.source_url;
+                      console.log(`Image ${index} URL set from source_url:`, mediaData.source_url);
+                    } else if (mediaData.guid?.rendered) {
+                      normalized.url = mediaData.guid.rendered;
+                      normalized.source_url = mediaData.guid.rendered;
+                      console.log(`Image ${index} URL set from guid.rendered:`, mediaData.guid.rendered);
+                    } else if (mediaData.media_details?.sizes?.large?.source_url) {
+                      normalized.url = mediaData.media_details.sizes.large.source_url;
+                      normalized.source_url = mediaData.media_details.sizes.large.source_url;
+                      console.log(`Image ${index} URL set from media_details:`, mediaData.media_details.sizes.large.source_url);
+                    }
+                    
+                    // Final check - if still no URL, log error
+                    if (!normalized.url && !normalized.source_url) {
+                      console.error(`Image ${index} has no URL after all extraction attempts`, {
+                        mediaData,
+                        normalized
+                      });
+                    }
+                    
+                    return normalized;
+                  } catch (mediaError) {
+                    console.error(`Error fetching media ${numericId}:`, mediaError);
+                    // Try to extract URL from the original post object
+                    // WordPress post objects might have guid as a string or in postmeta
+                    let url = null;
+                    
+                    // Check various possible URL fields in WordPress post objects
+                    if (img.guid && typeof img.guid === 'string') {
+                      url = img.guid;
+                    } else if (img.guid?.rendered) {
+                      url = img.guid.rendered;
+                    } else if (img.url) {
+                      url = img.url;
+                    } else if (img.source_url) {
+                      url = img.source_url;
+                    }
+                    
+                    if (url) {
+                      const normalized = normalizeImageData({
+                        id: numericId,
+                        url: url,
+                        source_url: url,
+                      });
+                      console.log(`Image ${index} normalized from fallback with URL:`, normalized);
+                      return normalized;
+                    } else {
+                      console.error(`Image ${index} could not extract URL from original object`, img);
+                      // Return null so it's filtered out
+                      return null;
+                    }
+                  }
+                }
+              }
+              
+              // If we can't extract an ID, log and return null
+              console.error(`Image ${index} has no extractable ID`, img);
+              return null;
+            } catch (imgError) {
+              console.error(`Error processing image ${index}:`, imgError, img);
+              return null;
+            }
+          });
+          normalizedGallery = (await Promise.all(galleryPromises)).filter(Boolean);
+          console.log('Normalized gallery after processing:', normalizedGallery);
+          // Log each image to see if URLs are present
+          normalizedGallery.forEach((img, idx) => {
+            console.log(`Normalized image ${idx}:`, {
+              id: img.id,
+              url: img.url,
+              source_url: img.source_url,
+              hasUrl: !!(img.url || img.source_url)
+            });
+          });
+        } catch (galleryError) {
+          console.error('Error processing gallery images:', galleryError);
+        }
+      }
+
+      // Always prefer attachments (media items whose parent is this listing)
+      if (listing.id) {
+        console.log('Fetching attachments for listing ID (source of truth for gallery):', listing.id);
+        try {
+          const attachmentGallery = await getGalleryFromAttachments(listing.id);
+          console.log('Gallery from attachments:', attachmentGallery);
+          if (attachmentGallery && attachmentGallery.length > 0) {
+            normalizedGallery = attachmentGallery;
+          }
+        } catch (attachmentError) {
+          console.error('Error fetching gallery from attachments:', attachmentError);
+        }
+      }
+      
+      console.log('Final normalized gallery:', normalizedGallery);
+      
+      const galleryIds = (normalizedGallery || [])
+        .map((img) => extractImageId(img))
+        .filter((imageId) => imageId !== null && imageId !== undefined);
+      
+      console.log('Final gallery IDs:', galleryIds);
+      
       // Map listing data to form data
       setFormData({
-        listing_name: listing.listing_name || '',
-        listing_description: listing.listing_description || '',
-        listing_price: listing.listing_price || '',
+        listing_name: listing.listing_name || listing.title?.rendered || '',
+        listing_description: listing.listing_description || listing.content?.rendered || '',
+        listing_price: listing.listing_price || listing.meta?.listing_price || '',
         listing_location: listing.listing_location || [],
         listing_region: listing.listing_region || [],
         listing_category: listing.listing_category || [],
         listing_size: listing.listing_size || [],
         listing_aminities: listing.listing_aminity || listing.listing_aminities || [],
-        listing_social_url: listing.listing_social_url || '',
-        listing_video: listing.listing_video || '',
-        room_number: listing.room_number || '',
-        listing_bed_number: listing.listing_bed_number || '',
-        guest_max_number: listing.guest_max_number || '',
-        check_in_time: listing.check_in_time || '',
-        check_out_time: listing.check_out_time || '',
-        listing_gallery: listing.listing_gallery || [],
+        listing_social_url: listing.listing_social_url || listing.meta?.listing_social_url || '',
+        listing_video: listing.listing_video || listing.meta?.listing_video || '',
+        room_number: listing.room_number || listing.meta?.room_number || '',
+        listing_bed_number: listing.listing_bed_number || listing.meta?.listing_bed_number || '',
+        guest_max_number: listing.guest_max_number || listing.meta?.guest_max_number || '',
+        check_in_time: listing.check_in_time || listing.meta?.check_in_time || '',
+        check_out_time: listing.check_out_time || listing.meta?.check_out_time || '',
+        listing_gallery: normalizedGallery || [],
         parent_location: parentLocation,
         child_location: childLocation,
       });
+      setInitialGalleryIds(galleryIds);
     } catch (err) {
       setError('Failed to load listing. Please try again.');
       console.error('Error loading listing:', err);
+      if (err.response) {
+        console.error('Response data:', err.response.data);
+        console.error('Response status:', err.response.status);
+      }
     } finally {
       setLoading(false);
     }
@@ -328,6 +805,20 @@ const ListingForm = () => {
     setError('');
 
     try {
+      // Wait for any pending image uploads to complete
+      // Filter out any images that are still uploading (have temp IDs)
+      const readyImages = formData.listing_gallery.filter((img) => {
+        const imageId = extractImageId(img);
+        // Skip images that are still uploading (temp IDs or no ID)
+        if (!imageId || (typeof imageId === 'string' && imageId.toString().startsWith('temp-'))) {
+          console.warn('Skipping image that is still uploading:', img);
+          return false;
+        }
+        return true;
+      });
+
+      console.log('Ready images before save:', readyImages);
+      
       // Combine parent and child location into listing_location
       const locationToSave = formData.child_location 
         ? [formData.child_location]
@@ -355,6 +846,9 @@ const ListingForm = () => {
         return id ? [id] : [];
       };
 
+      const galleryImageIds = formatGalleryImages(readyImages);
+      console.log('Gallery image IDs to save:', galleryImageIds);
+      
       // Prepare data for WordPress REST API
       const submitData = {
         title: formData.listing_name,
@@ -371,8 +865,11 @@ const ListingForm = () => {
           guest_max_number: formData.guest_max_number,
           check_in_time: formData.check_in_time,
           check_out_time: formData.check_out_time,
-          listing_gallery: formData.listing_gallery,
+          // Also persist in meta for setups that read from meta (Pods/ACF variations)
+          listing_gallery: galleryImageIds,
         },
+        // Pods relationship field: array of attachment IDs (drives the backend "Зурагүүд" field)
+        listing_gallery: galleryImageIds,
         // Taxonomy terms as arrays of IDs
         listing_category: formatTaxonomy(formData.listing_category),
         listing_size: formatTaxonomy(formData.listing_size),
@@ -381,11 +878,91 @@ const ListingForm = () => {
         listing_aminities: formatTaxonomy(formData.listing_aminities),
       };
 
+      let savedListing;
       if (isEdit) {
-        await updateListing(id, submitData);
+        savedListing = await updateListing(id, submitData);
       } else {
-        await createListing(submitData);
+        savedListing = await createListing(submitData);
       }
+
+      const listingId = savedListing?.id || id;
+      if (!listingId) {
+        throw new Error('Failed to get listing ID after save');
+      }
+
+      console.log('Listing saved with ID:', listingId);
+      console.log('Linking images to listing:', readyImages);
+
+      // For new listings, link all attachments to the listing
+      // For existing listings, sync attachments (link/unlink as needed)
+      await syncGalleryAttachments(listingId, readyImages, galleryImageIds);
+      
+      // Force save gallery meta field - try multiple methods
+      if (galleryImageIds && galleryImageIds.length > 0) {
+        console.log('Saving gallery meta field with IDs:', galleryImageIds);
+        // Method 1: Separate meta update call
+        try {
+          const metaResponse = await updateListingMetaField(listingId, 'listing_gallery', galleryImageIds);
+          console.log('Gallery meta field saved successfully:', metaResponse);
+        } catch (metaError1) {
+          console.warn('Method 1 failed, trying Method 2:', metaError1);
+          // Method 2: Full update with just meta
+          try {
+            const metaResponse2 = await updateListing(listingId, {
+              meta: {
+                listing_gallery: galleryImageIds,
+              },
+            });
+            console.log('Gallery meta field saved via Method 2:', metaResponse2);
+          } catch (metaError2) {
+            console.warn('Method 2 failed, trying Method 3:', metaError2);
+            // Method 3: Full update with all fields including meta
+            try {
+              const fullUpdateData = {
+                ...submitData,
+                meta: {
+                  ...submitData.meta,
+                  listing_gallery: galleryImageIds,
+                },
+              };
+              const metaResponse3 = await updateListing(listingId, fullUpdateData);
+              console.log('Gallery meta field saved via Method 3:', metaResponse3);
+            } catch (metaError3) {
+              console.error('All methods failed to save gallery meta field:', metaError3);
+              // Don't throw error, just log it - the attachments should still be linked
+            }
+          }
+        }
+      } else {
+        console.log('Clearing gallery meta field');
+        // Clear the meta field if gallery is empty
+        try {
+          await updateListingMetaField(listingId, 'listing_gallery', []);
+        } catch (clearError) {
+          console.warn('Failed to clear gallery meta field:', clearError);
+          // Try alternative method
+          try {
+            await updateListing(listingId, {
+              meta: {
+                listing_gallery: [],
+              },
+            });
+          } catch (clearError2) {
+            console.warn('Alternative clear method also failed:', clearError2);
+            // Ignore if clearing fails
+          }
+        }
+      }
+      
+      // Verify the save by fetching the listing again
+      try {
+        const verification = await getListing(listingId);
+        console.log('Verification - Listing meta:', verification.meta);
+        console.log('Verification - Listing gallery from meta:', verification.meta?.listing_gallery);
+      } catch (verifyError) {
+        console.warn('Could not verify listing save:', verifyError);
+      }
+      
       navigate('/listings');
     } catch (err) {
       // Show user-friendly error message
@@ -709,6 +1286,22 @@ const ListingForm = () => {
               />
             </div>
           </div>
+        </div>
+
+        {/* Gallery Images */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Gallery Images</h2>
+          <ImageGalleryUpload
+            images={formData.listing_gallery}
+            onChange={(newImages) => {
+              setFormData((prev) => ({
+                ...prev,
+                listing_gallery: newImages,
+              }));
+            }}
+            maxImages={20}
+            listingId={isEdit ? parseInt(id, 10) || id : null}
+          />
         </div>
 
         {/* URLs */}

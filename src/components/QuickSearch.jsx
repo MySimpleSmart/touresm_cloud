@@ -40,7 +40,7 @@ const QuickSearch = ({ locations = [], onSearch }) => {
       setSearchData({ ...searchData, [field]: value });
       setGuestsInput(String(value));
     } else {
-      setSearchData({ ...searchData, [field]: value });
+    setSearchData({ ...searchData, [field]: value });
     }
   };
 
@@ -142,10 +142,10 @@ const QuickSearch = ({ locations = [], onSearch }) => {
               >
                 −
               </button>
-              <input
-                type="number"
-                min="1"
-                max="20"
+            <input
+              type="number"
+              min="1"
+              max="20"
                 value={guestsInput}
                 onChange={(e) => {
                   const inputValue = e.target.value;

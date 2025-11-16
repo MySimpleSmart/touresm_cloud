@@ -135,3 +135,30 @@ export const getSizes = async () => {
 
 export default api;
 
+// Additional media helpers for resolving gallery image URLs
+export const getMedia = async (id) => {
+  try {
+    const response = await api.get(`/media/${id}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching media:', error);
+    throw error;
+  }
+};
+
+export const getMediaByParent = async (parentId, params = {}) => {
+  try {
+    const response = await api.get('/media', {
+      params: {
+        parent: parentId,
+        per_page: 100,
+        ...params,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching media by parent:', error);
+    throw error;
+  }
+};
+
