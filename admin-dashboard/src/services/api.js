@@ -298,7 +298,7 @@ export const deleteListing = async (id) => {
 };
 
 // Media/Image Upload
-export const uploadMedia = async (file, parentId = null) => {
+export const uploadMedia = async (file, parentId = null, onUploadProgress) => {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -310,6 +310,7 @@ export const uploadMedia = async (file, parentId = null) => {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
+      onUploadProgress: typeof onUploadProgress === 'function' ? onUploadProgress : undefined,
     });
     
     const mediaData = response.data;

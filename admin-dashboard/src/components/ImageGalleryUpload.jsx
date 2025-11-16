@@ -50,6 +50,8 @@ const ImageGalleryUpload = ({ images = [], onChange, maxImages = 20, listingId =
       id,
       url,
       source_url: url,
+      uploading: typeof img === 'object' ? Boolean(img.uploading) : false,
+      progress: typeof img === 'object' && typeof img.progress === 'number' ? img.progress : 0,
     };
   };
 
@@ -92,10 +94,22 @@ const ImageGalleryUpload = ({ images = [], onChange, maxImages = 20, listingId =
         url: previewUrl,
         source_url: previewUrl,
         uploading: true,
+        progress: 0,
       });
       onChange(newImages);
 
-      const uploadPromise = uploadMedia(file, listingId)
+      const uploadPromise = uploadMedia(file, listingId, (evt) => {
+        if (!evt || !evt.total) return;
+        const percent = Math.min(100, Math.round((evt.loaded * 100) / evt.total));
+        const idx = newImages.findIndex((img) => img.id === tempId);
+        if (idx !== -1) {
+          newImages[idx] = {
+            ...newImages[idx],
+            progress: percent,
+          };
+          onChange([...newImages]);
+        }
+      })
         .then((response) => {
           const index = newImages.findIndex((img) => img.id === tempId);
           if (index !== -1) {
@@ -106,6 +120,7 @@ const ImageGalleryUpload = ({ images = [], onChange, maxImages = 20, listingId =
               url: imageUrl,
               source_url: imageUrl,
               uploading: false,
+              progress: 100,
             };
             onChange([...newImages]);
           }
@@ -203,40 +218,6 @@ const ImageGalleryUpload = ({ images = [], onChange, maxImages = 20, listingId =
         <label className="block text-sm font-medium text-gray-700 mb-2">
           Gallery Images ({currentImages.length}/{maxImages})
         </label>
-        
-        {/* Upload Button */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading || currentImages.length >= maxImages}
-          className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-        >
-          <svg
-            className="w-6 h-6 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          <span className="text-gray-600">
-            {uploading ? 'Uploading...' : 'Click to upload images or drag and drop'}
-          </span>
-        </button>
-        
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
       </div>
 
       {/* Image Grid */}
@@ -288,7 +269,17 @@ const ImageGalleryUpload = ({ images = [], onChange, maxImages = 20, listingId =
                 {/* Uploading Overlay */}
                 {image.uploading && (
                   <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                    <div className="text-white text-sm">Uploading...</div>
+                    <div className="w-3/4">
+                      <div className="text-white text-xs mb-1 text-center">
+                        Uploading {Math.max(0, image.progress || 0)}%
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-primary-500 h-2 transition-all"
+                          style={{ width: `${Math.max(0, image.progress || 0)}%` }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -341,6 +332,42 @@ const ImageGalleryUpload = ({ images = [], onChange, maxImages = 20, listingId =
           ))}
         </div>
       )}
+
+      {/* Upload Button moved under grid */}
+      <div>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading || currentImages.length >= maxImages}
+          className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          <svg
+            className="w-6 h-6 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+          <span className="text-gray-600">
+            {uploading ? 'Uploading...' : 'Click to upload images'}
+          </span>
+        </button>
+        
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+      </div>
 
       {/* Help Text */}
       <p className="text-sm text-gray-500">
