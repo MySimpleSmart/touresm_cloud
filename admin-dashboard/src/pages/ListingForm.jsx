@@ -219,6 +219,7 @@ const ListingForm = () => {
     listing_aminities: [],
     listing_social_url: '',
     listing_video: '',
+    listing_familiar_location: '',
     room_number: '',
     listing_bed_number: '',
     guest_max_number: '',
@@ -424,20 +425,69 @@ const ListingForm = () => {
     const currentAmenities = formData.listing_aminities || [];
     const isSelected = isAmenitySelected(amenityId);
 
+    // Helper to normalize id compare
+    const sameId = (a, b) => String(a) === String(b);
+
+    if (isParent) {
+      const children = getChildrenForParentAmenity(amenityId) || [];
+      if (isSelected) {
+        // Unselect parent and all its children
+        const updated = currentAmenities.filter((amenity) => {
+          const id = extractTaxonomyId(amenity);
+          if (sameId(id, amenityId)) return false;
+          // remove any child of this parent
+          const isChild = children.some((c) => sameId(extractTaxonomyId(c), id));
+          return !isChild;
+        });
+        setFormData((prev) => ({ ...prev, listing_aminities: updated }));
+      } else {
+        // Select parent and all its children (avoid duplicates)
+        const toAdd = [{ id: amenityId }].concat(
+          children.map((c) => ({ id: c.id || c.term_id }))
+        );
+        const seen = new Set((currentAmenities || []).map((a) => String(extractTaxonomyId(a))));
+        const merged = [...currentAmenities];
+        toAdd.forEach((a) => {
+          const id = String(extractTaxonomyId(a));
+          if (id && !seen.has(id)) {
+            merged.push({ id: Number(id) || id });
+            seen.add(id);
+          }
+        });
+        setFormData((prev) => ({ ...prev, listing_aminities: merged }));
+      }
+      return;
+    }
+
+    // Toggling a child amenity
     if (isSelected) {
-      // Remove amenity
       const updated = currentAmenities.filter((amenity) => {
         const id = extractTaxonomyId(amenity);
-        return id !== amenityId && String(id) !== String(amenityId);
+        return !sameId(id, amenityId);
       });
       setFormData((prev) => ({ ...prev, listing_aminities: updated }));
     } else {
-      // Add amenity
       const newAmenity = { id: amenityId };
-      setFormData((prev) => ({
-        ...prev,
-        listing_aminities: [...currentAmenities, newAmenity],
-      }));
+      // ensure parent is also selected if not already
+      const childObj =
+        (taxonomies.amenities || []).find(
+          (a) => sameId(a.id || a.term_id, amenityId)
+        ) || {};
+      const parentId = childObj.parent || childObj.parent_id || childObj.parent_term_id || 0;
+      const merged = [...currentAmenities];
+      merged.push(newAmenity);
+      if (parentId && !isAmenitySelected(parentId)) {
+        merged.push({ id: parentId });
+      }
+      // de-duplicate
+      const seen = new Set();
+      const dedup = [];
+      for (const a of merged) {
+        const id = String(extractTaxonomyId(a));
+        if (id && !seen.add(id)) continue;
+        dedup.push(a);
+      }
+      setFormData((prev) => ({ ...prev, listing_aminities: dedup }));
     }
   };
 
@@ -730,6 +780,7 @@ const ListingForm = () => {
         listing_aminities: listing.listing_aminity || listing.listing_aminities || [],
         listing_social_url: listing.listing_social_url || listing.meta?.listing_social_url || '',
         listing_video: listing.listing_video || listing.meta?.listing_video || '',
+        listing_familiar_location: listing.listing_familiar_location || listing.meta?.listing_familiar_location || '',
         room_number: listing.room_number || listing.meta?.room_number || '',
         listing_bed_number: listing.listing_bed_number || listing.meta?.listing_bed_number || '',
         guest_max_number: listing.guest_max_number || listing.meta?.guest_max_number || '',
@@ -838,6 +889,7 @@ const ListingForm = () => {
         listing_price: formData.listing_price || '',
         listing_social_url: formData.listing_social_url || '',
         listing_video: formData.listing_video || '',
+        listing_familiar_location: formData.listing_familiar_location || '',
         room_number: formData.room_number || '',
         listing_bed_number: formData.listing_bed_number || '',
         guest_max_number: formData.guest_max_number || '',
@@ -850,6 +902,7 @@ const ListingForm = () => {
           listing_price: formData.listing_price || '',
           listing_social_url: formData.listing_social_url || '',
           listing_video: formData.listing_video || '',
+          listing_familiar_location: formData.listing_familiar_location || '',
           room_number: formData.room_number || '',
           listing_bed_number: formData.listing_bed_number || '',
           guest_max_number: formData.guest_max_number || '',
@@ -891,6 +944,7 @@ const ListingForm = () => {
           listing_price: formData.listing_price || '',
           listing_social_url: formData.listing_social_url || '',
           listing_video: formData.listing_video || '',
+          listing_familiar_location: formData.listing_familiar_location || '',
           room_number: formData.room_number || '',
           listing_bed_number: formData.listing_bed_number || '',
           guest_max_number: formData.guest_max_number || '',
@@ -1186,6 +1240,20 @@ const ListingForm = () => {
                   );
                 })}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Familiar Location (optional)
+              </label>
+              <input
+                type="text"
+                name="listing_familiar_location"
+                value={formData.listing_familiar_location || ''}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="e.g., Near City Center"
+              />
             </div>
           </div>
         </div>
