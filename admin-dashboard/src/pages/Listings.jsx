@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getListings, deleteListing } from '../services/api';
+import { getListings, deleteListing, getMediaByParent } from '../services/api';
 
 const Listings = () => {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [galleryIndexById, setGalleryIndexById] = useState({});
+  const [galleryUrlsById, setGalleryUrlsById] = useState({});
 
   useEffect(() => {
     loadListings();
@@ -17,6 +19,41 @@ const Listings = () => {
       const data = await getListings({ per_page: 100 });
       setListings(data);
       setError('');
+
+      // Fetch attachments for each listing to power on-card gallery
+      try {
+        const pairs = await Promise.allSettled(
+          (data || []).map(async (item) => {
+            if (!item?.id) return null;
+            const attachments = await getMediaByParent(item.id);
+            const sorted = (attachments || []).slice().sort((a, b) => {
+              const ao = typeof a.menu_order === 'number' ? a.menu_order : parseInt(a.menu_order || 0, 10) || 0;
+              const bo = typeof b.menu_order === 'number' ? b.menu_order : parseInt(b.menu_order || 0, 10) || 0;
+              if (ao !== bo) return ao - bo;
+              return (parseInt(a.id || a.ID || 0, 10) || 0) - (parseInt(b.id || b.ID || 0, 10) || 0);
+            });
+            const urls = sorted
+              .map(
+                (att) =>
+                  att?.source_url ||
+                  att?.media_details?.sizes?.large?.source_url ||
+                  att?.guid?.rendered ||
+                  null
+              )
+              .filter(Boolean);
+            return { id: item.id, urls };
+          })
+        );
+        const map = {};
+        pairs.forEach((res) => {
+          if (res.status === 'fulfilled' && res.value && res.value.id) {
+            map[res.value.id] = res.value.urls || [];
+          }
+        });
+        setGalleryUrlsById(map);
+      } catch (_e) {
+        // silent
+      }
     } catch (err) {
       setError('Failed to load listings. Please try again.');
       console.error('Error loading listings:', err);
@@ -90,18 +127,84 @@ const Listings = () => {
           </Link>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6">
           {listings.map((listing) => {
             const imageUrl = getImageUrl(listing);
+            const galleryUrls = galleryUrlsById[listing.id] || [];
+            const currentIndex = galleryIndexById[listing.id] || 0;
+            const currentImage = galleryUrls[currentIndex] || imageUrl;
+            const hasMultiple = galleryUrls.length > 1;
+            const goTo = (idx) => {
+              setGalleryIndexById((prev) => ({
+                ...prev,
+                [listing.id]: Math.max(0, Math.min(galleryUrls.length - 1, idx)),
+              }));
+            };
+            const prev = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!hasMultiple) return;
+              const nextIdx = (currentIndex - 1 + galleryUrls.length) % galleryUrls.length;
+              goTo(nextIdx);
+            };
+            const next = (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!hasMultiple) return;
+              const nextIdx = (currentIndex + 1) % galleryUrls.length;
+              goTo(nextIdx);
+            };
             return (
               <div key={listing.id} className="bg-white rounded-lg shadow overflow-hidden">
-                {imageUrl && (
-                  <div className="h-48 bg-gray-200 overflow-hidden">
+                {(galleryUrls.length > 0 || imageUrl) && (
+                  <div className="h-48 bg-gray-200 overflow-hidden relative group">
                     <img
-                      src={imageUrl}
+                      key={`${listing.id}-${currentIndex}`}
+                      src={currentImage}
                       alt={listing.listing_name || 'Listing'}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover transition-all duration-300 group-hover:scale-105"
+                      onError={(e) => {
+                        e.currentTarget.style.opacity = '0.5';
+                      }}
                     />
+                    {hasMultiple && (
+                      <>
+                        {/* Arrows (show on hover) */}
+                        <button
+                          onClick={prev}
+                          className="hidden group-hover:flex absolute left-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full w-7 h-7 items-center justify-center"
+                          aria-label="Previous image"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={next}
+                          className="hidden group-hover:flex absolute right-2 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white rounded-full w-7 h-7 items-center justify-center"
+                          aria-label="Next image"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                        {/* Minimal dots */}
+                        <div className="absolute bottom-2 inset-x-0 flex justify-center gap-1.5">
+                          {galleryUrls.map((_, idx) => (
+                            <button
+                              key={idx}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                goTo(idx);
+                              }}
+                              className={`rounded-full transition-all ${idx === currentIndex ? 'bg-white w-3 h-1.5' : 'bg-white/60 w-1.5 h-1.5'}`}
+                              aria-label={`Go to image ${idx + 1}`}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
                 <div className="p-4">
