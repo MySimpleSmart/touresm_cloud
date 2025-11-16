@@ -13,6 +13,7 @@ import {
   updateMediaItem,
   updateListingMetaField,
 } from '../services/api';
+import { updatePodsItemFields } from '../services/api';
 import ImageGalleryUpload from '../components/ImageGalleryUpload';
 
 const extractImageId = (img) => {
@@ -86,12 +87,7 @@ const normalizeImageData = (img) => {
   };
   
   // Ensure we have a valid URL - try constructing from ID if we have one
-  if (!normalized.url && !normalized.source_url && normalized.id) {
-    // WordPress media URL pattern: https://site.com/wp-content/uploads/YYYY/MM/filename.jpg
-    // We can't construct this without the filename, so we'll need to fetch it
-    // But for now, log a warning
-    console.warn('normalizeImageData: No URL found for image', { id: normalized.id, img });
-  }
+  // If no URL, leave as-is (silent in production)
   
   return normalized;
 };
@@ -138,17 +134,7 @@ const buildMediaUrl = (media) => {
   
   // If we have an ID but no URL, we'll need to fetch it
   // But for now, log what we have
-  if (!url) {
-    console.log('buildMediaUrl: No URL found, media structure:', {
-      hasSourceUrl: !!media.source_url,
-      hasGuid: !!media.guid,
-      hasGuidRendered: !!media.guid?.rendered,
-      hasMediaDetails: !!media.media_details,
-      hasUrl: !!media.url,
-      hasLink: !!media.link,
-      mediaKeys: Object.keys(media || {})
-    });
-  }
+  // Silent if no URL in production
   
   return url;
 };
@@ -269,7 +255,7 @@ const ListingForm = () => {
       setTaxonomies(taxData);
       return taxData;
     } catch (err) {
-      console.error('Error loading taxonomies:', err);
+      // silent
       const emptyData = { categories: [], locations: [], amenities: [], sizes: [] };
       setTaxonomies(emptyData);
       return emptyData;
@@ -408,30 +394,26 @@ const ListingForm = () => {
 
   const syncGalleryAttachments = async (listingId, galleryItems, galleryImageIds = []) => {
     if (!listingId || !Array.isArray(galleryItems)) {
-      console.warn('syncGalleryAttachments: Missing listingId or galleryItems', { listingId, galleryItems });
       return;
     }
     
-    console.log('syncGalleryAttachments: Starting sync', { listingId, galleryItemsCount: galleryItems.length, galleryImageIds });
+    // start sync
     
     const galleryWithIds = galleryItems
       .map((img, index) => {
         const mediaId = extractImageId(img);
         if (!mediaId) {
-          console.warn(`syncGalleryAttachments: Image ${index} has no ID`, img);
           return null;
         }
         
         // Skip temporary IDs (strings that start with 'temp-')
         if (typeof mediaId === 'string' && mediaId.toString().startsWith('temp-')) {
-          console.warn(`syncGalleryAttachments: Image ${index} has temp ID, skipping`, mediaId);
           return null;
         }
         
         // Only process numeric IDs
         const normalizedId = typeof mediaId === 'string' ? parseInt(mediaId, 10) : mediaId;
         if (isNaN(normalizedId) || normalizedId <= 0) {
-          console.warn(`syncGalleryAttachments: Image ${index} has invalid ID`, mediaId, normalizedId);
           return null;
         }
         
@@ -442,26 +424,23 @@ const ListingForm = () => {
       })
       .filter(Boolean);
 
-    console.log('syncGalleryAttachments: Processed images', galleryWithIds);
+    // processed
 
     if (galleryWithIds.length === 0) {
-      console.warn('syncGalleryAttachments: No valid images to sync');
       return;
     }
 
     try {
       // Link all images to the listing
-      console.log('syncGalleryAttachments: Linking images to listing', listingId);
       const linkResults = await Promise.allSettled(
         galleryWithIds.map(({ mediaId, order }) =>
           updateMediaItem(mediaId, {
             post: listingId,
             menu_order: order,
           }).then((result) => {
-            console.log(`syncGalleryAttachments: Linked image ${mediaId} to listing ${listingId} with order ${order}`, result);
             return result;
           }).catch((error) => {
-            console.error(`syncGalleryAttachments: Failed to link image ${mediaId} to listing ${listingId}:`, error);
+            // silent failure, continue
             throw error;
           })
         )
@@ -469,9 +448,6 @@ const ListingForm = () => {
       
       // Check for any failures
       const failures = linkResults.filter((result) => result.status === 'rejected');
-      if (failures.length > 0) {
-        console.warn('syncGalleryAttachments: Some images failed to link', failures);
-      }
 
       // Unlink removed images
       const removedIds = initialGalleryIds.filter(
@@ -480,14 +456,12 @@ const ListingForm = () => {
       );
 
       if (removedIds.length > 0) {
-        console.log('syncGalleryAttachments: Unlinking removed images', removedIds);
         await Promise.allSettled(
           removedIds.map((mediaId) =>
             updateMediaItem(mediaId, { post: 0 }).then((result) => {
-              console.log(`syncGalleryAttachments: Unlinked image ${mediaId}`, result);
               return result;
             }).catch((error) => {
-              console.error(`syncGalleryAttachments: Failed to unlink image ${mediaId}:`, error);
+              // silent
               // Don't throw - continue with other operations
             })
           )
@@ -501,13 +475,9 @@ const ListingForm = () => {
         setInitialGalleryIds(galleryWithIds.map(({ mediaId }) => mediaId));
       }
       
-      console.log('syncGalleryAttachments: Sync complete', {
-        linked: galleryWithIds.length,
-        unlinked: removedIds.length,
-        finalIds: galleryImageIds.length > 0 ? galleryImageIds : galleryWithIds.map(({ mediaId }) => mediaId),
-      });
+      // done
     } catch (attachmentError) {
-      console.error('syncGalleryAttachments: Error syncing gallery attachments:', attachmentError);
+      // silent
       throw attachmentError; // Re-throw to allow caller to handle
     }
   };
@@ -822,6 +792,15 @@ const ListingForm = () => {
       // For new listings, link all attachments to the listing
       // For existing listings, sync attachments (link/unlink as needed)
       await syncGalleryAttachments(listingId, readyImages, galleryImageIds);
+      
+      // Ensure Pods field reflects the gallery (so wp-admin Pods UI shows everything)
+      try {
+        await updatePodsItemFields('touresm-listing', listingId, {
+          listing_gallery: galleryImageIds,
+        });
+      } catch (podsErr) {
+        // silent; other methods below will still try to persist
+      }
       
       // Force save gallery meta field - try multiple methods
       if (galleryImageIds && galleryImageIds.length > 0) {

@@ -222,7 +222,6 @@ export const getListing = async (id) => {
     // WordPress REST API may not return custom meta fields unless they're registered with show_in_rest
     // Check if meta field is missing and try alternative approaches
     if (!listingData.meta || !listingData.meta.listing_gallery) {
-      console.log('Meta field not found in response, trying without context=edit');
       try {
         // Try without context=edit (some setups don't support it)
         const altResponse = await api.get(`/touresm-listing/${id}`, {
@@ -230,7 +229,7 @@ export const getListing = async (id) => {
         });
         listingData = altResponse.data;
       } catch (altError) {
-        console.warn('Alternative fetch method failed:', altError);
+        // silent
       }
     }
     
@@ -421,6 +420,19 @@ export const updateListingMetaField = async (listingId, metaKey, metaValue) => {
       console.error(`Error updating meta field ${metaKey} via PUT:`, putError);
       throw putError;
     }
+  }
+};
+
+// Pods REST: update fields for a Pods item (ensures wp-admin Pods UI reflects changes)
+export const updatePodsItemFields = async (podSlug, itemId, fields) => {
+  try {
+    const podsBase = API_BASE_URL.replace('/wp/v2', '/pods/v1');
+    const url = `${podsBase}/items/${podSlug}/${itemId}`;
+    const response = await axios.post(url, { fields }, { withCredentials: true });
+    return response.data;
+  } catch (error) {
+    console.error('Error updating Pods fields:', error);
+    throw error;
   }
 };
 
