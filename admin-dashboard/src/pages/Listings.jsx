@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getListings, deleteListing, getMediaByParent } from '../services/api';
+import ConfirmModal from '../components/ConfirmModal';
 
 const Listings = () => {
   const [listings, setListings] = useState([]);
@@ -8,6 +9,7 @@ const Listings = () => {
   const [error, setError] = useState('');
   const [galleryIndexById, setGalleryIndexById] = useState({});
   const [galleryUrlsById, setGalleryUrlsById] = useState({});
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   useEffect(() => {
     loadListings();
@@ -62,17 +64,20 @@ const Listings = () => {
     }
   };
 
-  const handleDelete = async (id, title) => {
-    if (!window.confirm(`Are you sure you want to delete "${title}"?`)) {
-      return;
-    }
+  const askDelete = (id, title) => {
+    setPendingDelete({ id, title });
+  };
 
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
     try {
-      await deleteListing(id);
-      setListings(listings.filter((listing) => listing.id !== id));
+      await deleteListing(pendingDelete.id);
+      setListings((prev) => prev.filter((l) => l.id !== pendingDelete.id));
+      setPendingDelete(null);
     } catch (err) {
       alert('Failed to delete listing. Please try again.');
       console.error('Error deleting listing:', err);
+      setPendingDelete(null);
     }
   };
 
@@ -224,7 +229,7 @@ const Listings = () => {
                       Edit
                     </Link>
                     <button
-                      onClick={() => handleDelete(listing.id, listing.listing_name)}
+                      onClick={() => askDelete(listing.id, listing.listing_name)}
                       className="flex-1 px-3 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors text-sm"
                     >
                       Delete
@@ -236,6 +241,20 @@ const Listings = () => {
           })}
         </div>
       )}
+      {/* Delete confirm modal */}
+      <ConfirmModal
+        open={Boolean(pendingDelete)}
+        title="Delete listing?"
+        message={
+          pendingDelete
+            ? `Are you sure you want to delete "${pendingDelete.title || 'this listing'}"? This action cannot be undone.`
+            : ''
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 };

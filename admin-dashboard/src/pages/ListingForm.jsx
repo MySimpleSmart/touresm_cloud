@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   getListing,
@@ -15,6 +15,7 @@ import {
 } from '../services/api';
 import { updatePodsItemFields } from '../services/api';
 import ImageGalleryUpload from '../components/ImageGalleryUpload';
+import ConfirmModal from '../components/ConfirmModal';
 
 const extractImageId = (img) => {
   if (!img) return null;
@@ -204,6 +205,8 @@ const ListingForm = () => {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
 
   const [formData, setFormData] = useState({
     listing_name: '',
@@ -235,6 +238,16 @@ const ListingForm = () => {
     sizes: [],
   });
 
+  const isDirty = useMemo(() => {
+    if (!initialSnapshot) return false;
+    try {
+      const current = JSON.stringify(formData);
+      return current !== initialSnapshot;
+    } catch {
+      return false;
+    }
+  }, [formData, initialSnapshot]);
+
   useEffect(() => {
     const initialize = async () => {
       const taxData = await loadTaxonomies();
@@ -245,6 +258,30 @@ const ListingForm = () => {
         setTimeout(() => {
           loadListing();
         }, 100);
+      } else {
+        // New listing: capture initial snapshot so unsaved-change detection works
+        try {
+          setInitialSnapshot(JSON.stringify({
+            listing_name: '',
+            listing_description: '',
+            listing_price: '',
+            listing_location: [],
+            listing_region: [],
+            listing_category: [],
+            listing_size: [],
+            listing_aminities: [],
+            listing_social_url: '',
+            listing_video: '',
+            room_number: '',
+            listing_bed_number: '',
+            guest_max_number: '',
+            check_in_time: '',
+            check_out_time: '',
+            listing_gallery: [],
+            parent_location: null,
+            child_location: null,
+          }));
+        } catch {}
       }
     };
     initialize();
@@ -682,7 +719,7 @@ const ListingForm = () => {
       }
       
       // Map listing data to form data
-      setFormData({
+      const mapped = {
         listing_name: listing.listing_name || listing.title?.rendered || '',
         listing_description: listing.listing_description || listing.content?.rendered || '',
         listing_price: listing.listing_price || listing.meta?.listing_price || '',
@@ -701,7 +738,12 @@ const ListingForm = () => {
         listing_gallery: normalizedGallery || [],
         parent_location: parentLocation,
         child_location: childLocation,
-      });
+      };
+      setFormData(mapped);
+      // Set initial snapshot after mapping
+      try {
+        setInitialSnapshot(JSON.stringify(mapped));
+      } catch {}
       setInitialGalleryIds(galleryIds);
     } catch (err) {
       setError('Failed to load listing. Please try again.');
@@ -907,6 +949,17 @@ const ListingForm = () => {
       setSaving(false);
     }
   };
+
+  // Warn on browser refresh/close if dirty
+  useEffect(() => {
+    const handler = (e) => {
+      if (!isDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
 
   if (loading) {
     return (
@@ -1272,13 +1325,29 @@ const ListingForm = () => {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/listings')}
+            onClick={() => {
+              if (isDirty) {
+                setShowLeaveConfirm(true);
+              } else {
+                navigate('/listings');
+              }
+            }}
             className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
           >
             Cancel
           </button>
         </div>
       </form>
+      {/* Leave without saving modal */}
+      <ConfirmModal
+        open={showLeaveConfirm}
+        title="Discard changes?"
+        message="You have unsaved changes. If you leave now, your changes will be lost."
+        confirmText="Leave without saving"
+        cancelText="Stay"
+        onConfirm={() => navigate('/listings')}
+        onCancel={() => setShowLeaveConfirm(false)}
+      />
     </div>
   );
 };
