@@ -66,6 +66,8 @@ const normalizeImageData = (img) => {
   if (!img) return null;
   const id = extractImageId(img);
   let url = extractImageUrl(img);
+  const order =
+    (typeof img === 'object' && img !== null && (img.menu_order ?? img.order ?? img.meta?.order)) ?? null;
   
   // If extractImageUrl didn't find a URL, try buildMediaUrl
   if (!url && img && typeof img === 'object') {
@@ -84,6 +86,7 @@ const normalizeImageData = (img) => {
     id: normalizedId || null,
     url: url || null,
     source_url: url || null,
+    order: typeof order === 'number' ? order : (parseInt(order, 10) || null),
   };
   
   // Ensure we have a valid URL - try constructing from ID if we have one
@@ -150,8 +153,16 @@ const getGalleryFromAttachments = async (listingId) => {
     if (!Array.isArray(attachments) || attachments.length === 0) {
       return [];
     }
+    // Sort attachments by menu_order ascending if present
+    const sorted = [...attachments].sort((a, b) => {
+      const ao = typeof a.menu_order === 'number' ? a.menu_order : parseInt(a.menu_order || 0, 10) || 0;
+      const bo = typeof b.menu_order === 'number' ? b.menu_order : parseInt(b.menu_order || 0, 10) || 0;
+      if (ao !== bo) return ao - bo;
+      // Fallback by id asc
+      return (parseInt(a.id || a.ID || 0, 10) || 0) - (parseInt(b.id || b.ID || 0, 10) || 0);
+    });
     
-    const normalizedAttachments = attachments
+    const normalizedAttachments = sorted
       .map((media, index) => {
         try {
           const mediaId = media.id || media.ID;
@@ -165,6 +176,7 @@ const getGalleryFromAttachments = async (listingId) => {
             id: mediaId,
             url: mediaUrl,
             source_url: mediaUrl,
+            order: media.menu_order ?? index,
           });
           
           if (!normalized || !normalized.id) {
@@ -644,6 +656,30 @@ const ListingForm = () => {
       const galleryIds = (normalizedGallery || [])
         .map((img) => extractImageId(img))
         .filter((imageId) => imageId !== null && imageId !== undefined);
+      
+      // If we have gallery IDs from meta/listing_gallery earlier, use that order to stabilize attachment order
+      let preferredOrderIds = [];
+      try {
+        const rawMetaGallery = listing.meta?.listing_gallery || listing.listing_gallery || listing.acf?.listing_gallery || [];
+        const rawArr = Array.isArray(rawMetaGallery) ? rawMetaGallery : [rawMetaGallery];
+        preferredOrderIds = rawArr
+          .map((img) => extractImageId(img))
+          .filter((id) => id != null && !Number.isNaN(parseInt(id, 10)))
+          .map((id) => (typeof id === 'string' ? parseInt(id, 10) : id));
+      } catch (_) {}
+      
+      if (preferredOrderIds.length > 0 && normalizedGallery && normalizedGallery.length > 0) {
+        const orderMap = new Map(preferredOrderIds.map((id, idx) => [Number(id), idx]));
+        normalizedGallery = [...normalizedGallery].sort((a, b) => {
+          const ai = orderMap.has(Number(a.id)) ? orderMap.get(Number(a.id)) : Number.MAX_SAFE_INTEGER;
+          const bi = orderMap.has(Number(b.id)) ? orderMap.get(Number(b.id)) : Number.MAX_SAFE_INTEGER;
+          if (ai !== bi) return ai - bi;
+          const ao = typeof a.order === 'number' ? a.order : 0;
+          const bo = typeof b.order === 'number' ? b.order : 0;
+          if (ao !== bo) return ao - bo;
+          return (parseInt(a.id || 0, 10) || 0) - (parseInt(b.id || 0, 10) || 0);
+        });
+      }
       
       // Map listing data to form data
       setFormData({

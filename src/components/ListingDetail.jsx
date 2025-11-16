@@ -71,7 +71,14 @@ const ListingDetail = () => {
       if (listingData.id) {
         try {
           const attachments = await getMediaByParent(listingData.id);
-          const attachmentUrls = (attachments || [])
+          // Sort by menu_order asc if present
+          const sorted = (attachments || []).slice().sort((a, b) => {
+            const ao = typeof a.menu_order === 'number' ? a.menu_order : parseInt(a.menu_order || 0, 10) || 0;
+            const bo = typeof b.menu_order === 'number' ? b.menu_order : parseInt(b.menu_order || 0, 10) || 0;
+            if (ao !== bo) return ao - bo;
+            return (parseInt(a.id || a.ID || 0, 10) || 0) - (parseInt(b.id || b.ID || 0, 10) || 0);
+          });
+          const attachmentUrls = sorted
             .map(
               (att) =>
                 att?.source_url ||
