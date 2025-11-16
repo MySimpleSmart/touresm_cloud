@@ -24,6 +24,27 @@ const Listings = () => {
 
       // Fetch attachments for each listing to power on-card gallery
       try {
+        const extractId = (img) => {
+          if (!img) return null;
+          if (typeof img === 'number') return img;
+          if (typeof img === 'string') {
+            const n = parseInt(img, 10);
+            return Number.isNaN(n) ? null : n;
+          }
+          if (typeof img === 'object') {
+            return (
+              img.id ||
+              img.ID ||
+              img.media_id ||
+              img.image_id ||
+              img.attachment_id ||
+              (img.meta && (img.meta.id || img.meta.image_id)) ||
+              null
+            );
+          }
+          return null;
+        };
+
         const pairs = await Promise.allSettled(
           (data || []).map(async (item) => {
             if (!item?.id) return null;
@@ -34,15 +55,67 @@ const Listings = () => {
               if (ao !== bo) return ao - bo;
               return (parseInt(a.id || a.ID || 0, 10) || 0) - (parseInt(b.id || b.ID || 0, 10) || 0);
             });
-            const urls = sorted
-              .map(
-                (att) =>
+            const idToUrl = new Map(
+              sorted.map((att) => {
+                const url =
                   att?.source_url ||
                   att?.media_details?.sizes?.large?.source_url ||
                   att?.guid?.rendered ||
-                  null
-              )
-              .filter(Boolean);
+                  null;
+                return [Number(att?.id || att?.ID), url];
+              })
+            );
+            // Prefer explicit order from Pods/meta if present
+            let urls = [];
+            try {
+              const rawMeta = item.listing_gallery || item.meta?.listing_gallery || item.acf?.listing_gallery || [];
+              const rawArr = Array.isArray(rawMeta) ? rawMeta : [rawMeta];
+              const orderedIds = rawArr
+                .map((img) => extractId(img))
+                .filter((v) => v != null)
+                .map((v) => Number(v));
+              if (orderedIds.length > 0) {
+                const seen = new Set();
+                urls = orderedIds
+                  .map((id) => {
+                    seen.add(id);
+                    return idToUrl.get(id);
+                  })
+                  .filter(Boolean);
+                // Append any remaining attachments not in meta, in menu_order
+                sorted.forEach((att) => {
+                  const aid = Number(att?.id || att?.ID);
+                  if (!seen.has(aid)) {
+                    const url =
+                      att?.source_url ||
+                      att?.media_details?.sizes?.large?.source_url ||
+                      att?.guid?.rendered ||
+                      null;
+                    if (url) urls.push(url);
+                  }
+                });
+              } else {
+                urls = sorted
+                  .map(
+                    (att) =>
+                      att?.source_url ||
+                      att?.media_details?.sizes?.large?.source_url ||
+                      att?.guid?.rendered ||
+                      null
+                  )
+                  .filter(Boolean);
+              }
+            } catch (_) {
+              urls = sorted
+                .map(
+                  (att) =>
+                    att?.source_url ||
+                    att?.media_details?.sizes?.large?.source_url ||
+                    att?.guid?.rendered ||
+                    null
+                )
+                .filter(Boolean);
+            }
             return { id: item.id, urls };
           })
         );
