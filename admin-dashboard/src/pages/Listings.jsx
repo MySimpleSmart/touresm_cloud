@@ -294,19 +294,48 @@ const Listings = () => {
                       ${parseFloat(listing.listing_price).toLocaleString()}/night
                     </p>
                   )}
-                  <div className="flex gap-2 mt-4">
+                  <div className="mt-4 flex items-center justify-between">
                     <Link
                       to={`/listings/edit/${listing.id}`}
-                      className="flex-1 text-center px-3 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors text-sm"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors text-sm"
+                      title="Edit"
+                      aria-label="Edit listing"
                     >
-                      Edit
+                      {/* Heroicons Outline: Pencil Square */}
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 3.487a2.25 2.25 0 013.182 3.182l-9.193 9.193a4.5 4.5 0 01-1.897 1.13l-2.882.864a.75.75 0 01-.927-.927l.864-2.882a4.5 4.5 0 011.13-1.897l9.193-9.193z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 7.5L16.5 4.5" />
+                      </svg>
+                      <span>Edit</span>
                     </Link>
-                    <button
-                      onClick={() => askDelete(listing.id, listing.listing_name)}
-                      className="flex-1 px-3 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors text-sm"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* View button (opens public listing in new tab) */}
+                      <a
+                        href={listing.link || `/listing/${listing.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                        title="View"
+                        aria-label="View listing"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12s3-7 9-7 9 7 9 7-3 7-9 7-9-7-9-7z" />
+                          <circle cx="12" cy="12" r="3" strokeWidth={2} />
+                        </svg>
+                      </a>
+                      {/* Delete icon button */}
+                      <button
+                        onClick={() => askDelete(listing.id, listing.listing_name)}
+                        className="p-2 rounded-full bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                        title="Delete"
+                        aria-label="Delete listing"
+                      >
+                        {/* Heroicons Outline: Trash */}
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10" />
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
