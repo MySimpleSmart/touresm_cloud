@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getHouses, updateHouseDate, removeHouseDate } from '../services/api';
+import { getHouses, updateHouseDate, removeHouseDate, getListing } from '../services/api';
 
 const BookingCalendar = () => {
   const [houses, setHouses] = useState([]);
@@ -44,14 +44,20 @@ const BookingCalendar = () => {
     }
   };
 
-  const getAvailableDates = (house) => {
-    const datesStr = house.available_dates || house.meta?.available_dates || house.meta?.listing_available_dates || '';
+  const getAdminBlockedDates = (house) => {
+    const datesStr = house.admin_blocked_days || 
+                    house.meta?.admin_blocked_days || 
+                    house.meta?.listing_admin_blocked_days || 
+                    '';
     if (!datesStr) return [];
     return datesStr.split(',').map((d) => d.trim()).filter(Boolean);
   };
 
-  const getOwnerDates = (house) => {
-    const datesStr = house.meta?.owner_available_dates || '';
+  const getHostBlockedDates = (house) => {
+    const datesStr = house.host_blocked_days || 
+                    house.meta?.host_blocked_days || 
+                    house.meta?.listing_host_blocked_days || 
+                    '';
     if (!datesStr) return [];
     return datesStr.split(',').map((d) => d.trim()).filter(Boolean);
   };
@@ -104,19 +110,23 @@ const BookingCalendar = () => {
   };
 
   // Get date status for a cell
-  // Logic: Dates in available_dates are BLOCKED/UNAVAILABLE (booked or manually blocked)
-  // Dates NOT in available_dates are AVAILABLE (open for booking)
-  // If in owner_available_dates = Host blocked (red)
-  // If only in available_dates = Admin blocked (gray)
+  // Logic: Dates in admin_blocked_days = Admin blocked (gray)
+  // Dates in host_blocked_days = Host blocked (red)
+  // Dates NOT in either = Available (green)
   const getDateStatus = (house, dateStr) => {
-    const blockedDates = getAvailableDates(house); // This field stores blocked dates
-    const ownerDates = getOwnerDates(house);
-    const isBlocked = blockedDates.includes(dateStr);
-    const isHostBlocked = ownerDates.includes(dateStr);
+    const adminDates = getAdminBlockedDates(house);
+    const hostDates = getHostBlockedDates(house);
+    const isAdminBlocked = adminDates.includes(dateStr);
+    const isHostBlocked = hostDates.includes(dateStr);
     
-    if (isBlocked && isHostBlocked) return 'host'; // Host blocked (red)
-    if (isBlocked) return 'admin'; // Admin blocked (gray)
-    return 'available'; // Open for booking (green)
+    // Priority: Host blocked takes precedence (red)
+    if (isHostBlocked) {
+      return 'host'; // Host blocked (red)
+    }
+    if (isAdminBlocked) {
+      return 'admin'; // Admin blocked (gray)
+    }
+    return 'available'; // Open for booking (green) - not in either blocked list
   };
 
   // Handle month change
@@ -231,23 +241,30 @@ const BookingCalendar = () => {
           });
           setShowBlockConfirm(true);
         } else {
-          // Remove dates from available_dates = UNBLOCK them (make available)
-          // No need to ask, just unblock
+          // Remove dates from blocked days = UNBLOCK them (make available)
+          // No need to ask, just unblock from both admin and host
           try {
             await removeHouseDate(state.selectedHouseId, datesArray, false);
             setError('');
             setHouses(prevHouses => {
               return prevHouses.map(house => {
                 if (house.id === state.selectedHouseId) {
-                  const currentDatesStr = house.available_dates || house.meta?.available_dates || '';
-                  const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
-                  const updatedDates = currentDates.filter(date => !datesArray.includes(date));
+                  const adminDatesStr = house.admin_blocked_days || house.meta?.admin_blocked_days || '';
+                  const adminDates = adminDatesStr ? adminDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+                  const updatedAdminDates = adminDates.filter(date => !datesArray.includes(date));
+                  
+                  const hostDatesStr = house.host_blocked_days || house.meta?.host_blocked_days || '';
+                  const hostDates = hostDatesStr ? hostDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+                  const updatedHostDates = hostDates.filter(date => !datesArray.includes(date));
+                  
                   return {
                     ...house,
-                    available_dates: updatedDates.join(','),
+                    admin_blocked_days: updatedAdminDates.join(','),
+                    host_blocked_days: updatedHostDates.join(','),
                     meta: {
                       ...house.meta,
-                      available_dates: updatedDates.join(','),
+                      admin_blocked_days: updatedAdminDates.join(','),
+                      host_blocked_days: updatedHostDates.join(','),
                     },
                   };
                 }
@@ -277,23 +294,30 @@ const BookingCalendar = () => {
             });
             setShowBlockConfirm(true);
           } else {
-            // Remove date from available_dates = UNBLOCK it (make available)
-            // No need to ask, just unblock
+            // Remove date from blocked days = UNBLOCK it (make available)
+            // No need to ask, just unblock from both admin and host
             try {
               await removeHouseDate(houseId, [dateStr], false);
               setError('');
               setHouses(prevHouses => {
                 return prevHouses.map(house => {
                   if (house.id === houseId) {
-                    const currentDatesStr = house.available_dates || house.meta?.available_dates || '';
-                    const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
-                    const updatedDates = currentDates.filter(date => date !== dateStr);
+                    const adminDatesStr = house.admin_blocked_days || house.meta?.admin_blocked_days || '';
+                    const adminDates = adminDatesStr ? adminDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+                    const updatedAdminDates = adminDates.filter(date => date !== dateStr);
+                    
+                    const hostDatesStr = house.host_blocked_days || house.meta?.host_blocked_days || '';
+                    const hostDates = hostDatesStr ? hostDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+                    const updatedHostDates = hostDates.filter(date => date !== dateStr);
+                    
                     return {
                       ...house,
-                      available_dates: updatedDates.join(','),
+                      admin_blocked_days: updatedAdminDates.join(','),
+                      host_blocked_days: updatedHostDates.join(','),
                       meta: {
                         ...house.meta,
-                        available_dates: updatedDates.join(','),
+                        admin_blocked_days: updatedAdminDates.join(','),
+                        host_blocked_days: updatedHostDates.join(','),
                       },
                     };
                   }
@@ -334,34 +358,67 @@ const BookingCalendar = () => {
       try {
         await updateHouseDate(pendingBlock.houseId, pendingBlock.dates, isOwner);
         setError('');
-        setHouses(prevHouses => {
-          return prevHouses.map(house => {
-            if (house.id === pendingBlock.houseId) {
-              const currentDatesStr = house.available_dates || house.meta?.available_dates || '';
-              const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
-              const datesToAdd = pendingBlock.dates.filter(date => !currentDates.includes(date));
-              const updatedDates = [...currentDates, ...datesToAdd];
-              const updatedHouse = {
-                ...house,
-                available_dates: updatedDates.join(','),
-                meta: {
-                  ...house.meta,
-                  available_dates: updatedDates.join(','),
-                },
-              };
-              // If owner/host, also update owner_available_dates
-              if (isOwner) {
-                const ownerDatesStr = house.meta?.owner_available_dates || '';
-                const ownerDates = ownerDatesStr ? ownerDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
-                const datesToAddToOwner = pendingBlock.dates.filter(date => !ownerDates.includes(date));
-                const updatedOwnerDates = [...ownerDates, ...datesToAddToOwner];
-                updatedHouse.meta.owner_available_dates = updatedOwnerDates.join(',');
+        
+        // Reload the specific listing to get the actual saved data
+        try {
+          const updatedListing = await getListing(pendingBlock.houseId);
+          
+          // Map the listing to house structure
+          const adminDates = updatedListing.admin_blocked_days || 
+                            updatedListing.meta?.admin_blocked_days || 
+                            updatedListing.meta?.listing_admin_blocked_days || 
+                            '';
+          const hostDates = updatedListing.host_blocked_days || 
+                           updatedListing.meta?.host_blocked_days || 
+                           updatedListing.meta?.listing_host_blocked_days || 
+                           '';
+          
+          const updatedHouse = {
+            id: updatedListing.id,
+            title: updatedListing.title,
+            admin_blocked_days: adminDates,
+            host_blocked_days: hostDates,
+            meta: {
+              admin_blocked_days: adminDates,
+              host_blocked_days: hostDates,
+              house_size: updatedListing.meta?.house_size || updatedListing.meta?.listing_size || '',
+            },
+          };
+          
+          // Update local state with the verified data
+          setHouses(prevHouses => {
+            return prevHouses.map(house => {
+              if (house.id === pendingBlock.houseId) {
+                return updatedHouse;
               }
-              return updatedHouse;
-            }
-            return house;
+              return house;
+            });
           });
-        });
+        } catch (reloadError) {
+          console.warn('Could not reload listing, using local update:', reloadError);
+          // Fallback to local state update if reload fails
+          setHouses(prevHouses => {
+            return prevHouses.map(house => {
+              if (house.id === pendingBlock.houseId) {
+                const fieldName = isOwner ? 'host_blocked_days' : 'admin_blocked_days';
+                const currentDatesStr = house[fieldName] || house.meta?.[fieldName] || '';
+                const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+                const datesToAdd = pendingBlock.dates.filter(date => !currentDates.includes(date));
+                const updatedDates = [...currentDates, ...datesToAdd];
+                const updatedHouse = {
+                  ...house,
+                  [fieldName]: updatedDates.join(','),
+                  meta: {
+                    ...house.meta,
+                    [fieldName]: updatedDates.join(','),
+                  },
+                };
+                return updatedHouse;
+              }
+              return house;
+            });
+          });
+        }
       } catch (err) {
         console.error('Error blocking dates:', err);
         setError(`Failed to block dates: ${err.message || 'Please try again.'}`);
@@ -514,8 +571,8 @@ const BookingCalendar = () => {
           </thead>
           <tbody>
             {filteredHouses.map((house) => {
-              const availableDates = getAvailableDates(house);
-              const ownerDates = getOwnerDates(house);
+              const adminDates = getAdminBlockedDates(house);
+              const hostDates = getHostBlockedDates(house);
 
                   return (
                 <tr key={house.id} className="hover:bg-gray-50">
@@ -540,9 +597,9 @@ const BookingCalendar = () => {
                     const day = i + 1;
                     const dateStr = formatDate(year, month, day);
                     const status = getDateStatus(house, dateStr);
-                    // If date is blocked (in available_dates), action is 'remove' (to unblock)
-                    // If date is available (not in available_dates), action is 'add' (to block)
-                    const isBlocked = availableDates.includes(dateStr);
+                    // If date is blocked (in admin_blocked_days or host_blocked_days), action is 'remove' (to unblock)
+                    // If date is available (not in either), action is 'add' (to block)
+                    const isBlocked = adminDates.includes(dateStr) || hostDates.includes(dateStr);
                     const action = isBlocked ? 'remove' : 'add';
 
                     let cellClass = 'date-cell px-2 py-3 text-center border-b border-r cursor-pointer transition-colors';

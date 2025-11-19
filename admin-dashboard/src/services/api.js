@@ -233,6 +233,21 @@ export const getListing = async (id) => {
       }
     }
     
+    // Ensure blocked days fields are accessible - check all possible locations
+    // This is critical for calendar to show Host vs Admin blocking correctly
+    if (listingData.meta) {
+      if (!listingData.meta.admin_blocked_days) {
+        listingData.meta.admin_blocked_days = listingData.admin_blocked_days || 
+                                              listingData.meta?.listing_admin_blocked_days || 
+                                              '';
+      }
+      if (!listingData.meta.host_blocked_days) {
+        listingData.meta.host_blocked_days = listingData.host_blocked_days || 
+                                             listingData.meta?.listing_host_blocked_days || 
+                                             '';
+      }
+    }
+    
     return listingData;
   } catch (error) {
     console.error('Error fetching listing:', error);
@@ -571,23 +586,94 @@ export const updateBookingStatus = async (id, status) => {
 
 // Track whether we're using houses or listings
 let usingListingsFallback = false;
+let podsAvailable = true;
+
+const updatePodsFieldsIfAvailable = async (itemId, fields) => {
+  if (!podsAvailable) return;
+  try {
+    await updatePodsItemFields('touresm-listing', itemId, fields);
+  } catch (error) {
+    if (error?.response?.status === 404) {
+      podsAvailable = false;
+    } else {
+      console.warn('Warning: Could not save Pods fields:', error);
+    }
+  }
+};
 
 // Houses (for booking calendar - uses listings endpoint)
 export const getHouses = async (params = {}) => {
   try {
-    const listingsResponse = await api.get('/touresm-listing', { params });
+    // Request with context=edit to get meta fields (requires authentication)
+    const listingsResponse = await api.get('/touresm-listing', { 
+      params: {
+        ...params,
+        context: 'edit',
+        _embed: true,
+      }
+    });
     usingListingsFallback = true;
+    
     // Map listings to house-like structure for calendar compatibility
-    return listingsResponse.data.map(listing => ({
-      id: listing.id,
-      title: listing.title,
-      available_dates: listing.available_dates || listing.meta?.available_dates || '',
-      meta: {
-        available_dates: listing.available_dates || listing.meta?.available_dates || '',
-        owner_available_dates: listing.meta?.owner_available_dates || '',
-        house_size: listing.meta?.house_size || listing.meta?.listing_size || '',
-      },
-    }));
+    // Always fetch individually for listings with blocked dates to ensure fields are loaded
+    const houses = await Promise.all(
+      listingsResponse.data.map(async (listing) => {
+        const hasBlockedDates = listing.admin_blocked_days || listing.meta?.admin_blocked_days || 
+                                listing.host_blocked_days || listing.meta?.host_blocked_days;
+        
+        // If listing has blocked dates, always fetch individually to get the fields
+        // This ensures we have the correct Host vs Admin status
+        let adminDates = '';
+        let hostDates = '';
+        if (hasBlockedDates) {
+          try {
+            const individualListing = await getListing(listing.id);
+            adminDates = individualListing.admin_blocked_days || 
+                        individualListing.meta?.admin_blocked_days || 
+                        individualListing.meta?.listing_admin_blocked_days || 
+                        '';
+            hostDates = individualListing.host_blocked_days || 
+                       individualListing.meta?.host_blocked_days || 
+                       individualListing.meta?.listing_host_blocked_days || 
+                       '';
+          } catch (fetchError) {
+            // If individual fetch fails, try from bulk response
+            adminDates = listing.admin_blocked_days || 
+                        listing.meta?.admin_blocked_days || 
+                        listing.meta?.listing_admin_blocked_days || 
+                        '';
+            hostDates = listing.host_blocked_days || 
+                       listing.meta?.host_blocked_days || 
+                       listing.meta?.listing_host_blocked_days || 
+                       '';
+          }
+        } else {
+          // No blocked dates, use empty strings
+          adminDates = listing.admin_blocked_days || 
+                      listing.meta?.admin_blocked_days || 
+                      listing.meta?.listing_admin_blocked_days || 
+                      '';
+          hostDates = listing.host_blocked_days || 
+                     listing.meta?.host_blocked_days || 
+                     listing.meta?.listing_host_blocked_days || 
+                     '';
+        }
+        
+        return {
+          id: listing.id,
+          title: listing.title,
+          admin_blocked_days: adminDates,
+          host_blocked_days: hostDates,
+          meta: {
+            admin_blocked_days: adminDates,
+            host_blocked_days: hostDates,
+            house_size: listing.meta?.house_size || listing.meta?.listing_size || '',
+          },
+        };
+      })
+    );
+    
+    return houses;
   } catch (error) {
     console.error('Error fetching listings for calendar:', error);
     if (error.response) {
@@ -633,12 +719,15 @@ export const updateHouseDates = async (id, dates) => {
   }
 };
 
-// Update house dates (uses listings endpoint with available_dates field)
+// Update house dates (uses listings endpoint with admin_blocked_days and host_blocked_days fields)
 export const updateHouseDate = async (houseId, dates, isOwner = false) => {
   try {
     // Get current listing to merge dates
     const listing = await getListing(houseId);
-    const currentDatesStr = listing.available_dates || listing.meta?.available_dates || '';
+    
+    // Determine which field to update based on isOwner
+    const fieldName = isOwner ? 'host_blocked_days' : 'admin_blocked_days';
+    const currentDatesStr = listing[fieldName] || listing.meta?.[fieldName] || listing.meta?.[`listing_${fieldName}`] || '';
     const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
     
     // Add new dates that aren't already present
@@ -646,23 +735,36 @@ export const updateHouseDate = async (houseId, dates, isOwner = false) => {
     const updatedDates = [...currentDates, ...datesToAdd];
     const datesString = updatedDates.join(',');
     
-    // Update using the available_dates field directly
+    // Prepare update data
+    const updateData = {
+      [fieldName]: datesString,
+      meta: {
+        [fieldName]: datesString,
+      },
+    };
+    
+    // Update using the field directly
     // Method 1: Update as top-level field (most reliable)
     try {
-      await updateListing(houseId, {
-        available_dates: datesString,
-        meta: {
-          available_dates: datesString,
-        },
-      });
+      await updateListing(houseId, updateData);
+      // Also ensure field is saved separately via meta
+      try {
+        await updateListingMetaField(houseId, fieldName, datesString);
+      } catch (metaError) {
+        console.warn(`Warning: Could not save ${fieldName} via meta field:`, metaError);
+        // Don't throw - main save succeeded
+      }
     } catch (e1) {
       // Method 2: Update via meta field only
       try {
-        await updateListingMetaField(houseId, 'available_dates', datesString);
+        await updateListingMetaField(houseId, fieldName, datesString);
       } catch (e2) {
         throw new Error(`Failed to save dates: ${e2.message || 'Unknown error'}`);
       }
     }
+
+    // Method 3: Ensure Pods data is updated so wp-admin shows correct values
+    await updatePodsFieldsIfAvailable(houseId, { [fieldName]: datesString });
     
     return { success: true };
   } catch (error) {
@@ -671,54 +773,62 @@ export const updateHouseDate = async (houseId, dates, isOwner = false) => {
   }
 };
 
-// Remove house dates (uses listings endpoint with available_dates field)
-// isOwner: true = Owner (removes from available_dates and adds to owner_available_dates)
-// isOwner: false = Admin (removes from available_dates only)
+// Remove house dates (uses listings endpoint with admin_blocked_days and host_blocked_days fields)
+// When unblocking dates: remove from both admin_blocked_days and host_blocked_days
 export const removeHouseDate = async (houseId, dates, isOwner = false) => {
   try {
     // Get current listing to remove dates
     const listing = await getListing(houseId);
-    const currentDatesStr = listing.available_dates || listing.meta?.available_dates || '';
-    const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
     
-    // Remove specified dates from available_dates
-    const updatedDates = currentDates.filter(date => !dates.includes(date));
-    const datesString = updatedDates.join(',');
+    // Remove from admin_blocked_days
+    const adminDatesStr = listing.admin_blocked_days || listing.meta?.admin_blocked_days || listing.meta?.listing_admin_blocked_days || '';
+    const adminDates = adminDatesStr ? adminDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+    const updatedAdminDates = adminDates.filter(date => !dates.includes(date));
+    const updatedAdminDatesString = updatedAdminDates.join(',');
+    
+    // Remove from host_blocked_days
+    const hostDatesStr = listing.host_blocked_days || listing.meta?.host_blocked_days || listing.meta?.listing_host_blocked_days || '';
+    const hostDates = hostDatesStr ? hostDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+    const updatedHostDates = hostDates.filter(date => !dates.includes(date));
+    const updatedHostDatesString = updatedHostDates.join(',');
     
     // Prepare update data
     const updateData = {
-      available_dates: datesString,
+      admin_blocked_days: updatedAdminDatesString,
+      host_blocked_days: updatedHostDatesString,
       meta: {
-        available_dates: datesString,
+        admin_blocked_days: updatedAdminDatesString,
+        host_blocked_days: updatedHostDatesString,
       },
     };
     
-    // If Owner: add removed dates to owner_available_dates
-    if (isOwner) {
-      const ownerDatesStr = listing.meta?.owner_available_dates || '';
-      const ownerDates = ownerDatesStr ? ownerDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
-      // Add dates that aren't already in owner_available_dates
-      const datesToAddToOwner = dates.filter(date => !ownerDates.includes(date));
-      const updatedOwnerDates = [...ownerDates, ...datesToAddToOwner];
-      updateData.meta.owner_available_dates = updatedOwnerDates.join(',');
-    }
-    // If Admin: just remove from available_dates (owner_available_dates stays unchanged)
-    
-    // Update using the available_dates field directly
-    // Method 1: Update as top-level field (most reliable)
+    // Update using the fields directly
+    // Method 1: Update as top-level fields (most reliable)
     try {
       await updateListing(houseId, updateData);
+      // Also ensure fields are saved separately via meta
+      try {
+        await updateListingMetaField(houseId, 'admin_blocked_days', updatedAdminDatesString);
+        await updateListingMetaField(houseId, 'host_blocked_days', updatedHostDatesString);
+      } catch (metaError) {
+        console.warn('Warning: Could not save blocked days via meta field:', metaError);
+        // Don't throw - main save succeeded
+      }
     } catch (e1) {
       // Method 2: Update via meta field only
       try {
-        await updateListingMetaField(houseId, 'available_dates', datesString);
-        if (isOwner && updateData.meta.owner_available_dates) {
-          await updateListingMetaField(houseId, 'owner_available_dates', updateData.meta.owner_available_dates);
-        }
+        await updateListingMetaField(houseId, 'admin_blocked_days', updatedAdminDatesString);
+        await updateListingMetaField(houseId, 'host_blocked_days', updatedHostDatesString);
       } catch (e2) {
         throw new Error(`Failed to remove dates: ${e2.message || 'Unknown error'}`);
       }
     }
+
+    // Method 3: Ensure Pods data is updated so wp-admin shows correct values
+    await updatePodsFieldsIfAvailable(houseId, {
+      admin_blocked_days: updatedAdminDatesString,
+      host_blocked_days: updatedHostDatesString,
+    });
     
     return { success: true };
   } catch (error) {
