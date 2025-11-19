@@ -569,16 +569,45 @@ export const updateBookingStatus = async (id, status) => {
   }
 };
 
-// Houses (for booking calendar - using the house post type)
+// Track whether we're using houses or listings
+let usingListingsFallback = false;
+
+// Houses (for booking calendar - uses listings endpoint)
 export const getHouses = async (params = {}) => {
   try {
-    const response = await api.get('/house', { params });
-    return response.data;
+    const listingsResponse = await api.get('/touresm-listing', { params });
+    usingListingsFallback = true;
+    // Map listings to house-like structure for calendar compatibility
+    return listingsResponse.data.map(listing => ({
+      id: listing.id,
+      title: listing.title,
+      available_dates: listing.available_dates || listing.meta?.available_dates || '',
+      meta: {
+        available_dates: listing.available_dates || listing.meta?.available_dates || '',
+        owner_available_dates: listing.meta?.owner_available_dates || '',
+        house_size: listing.meta?.house_size || listing.meta?.listing_size || '',
+      },
+    }));
   } catch (error) {
-    console.error('Error fetching houses:', error);
-    throw error;
+    console.error('Error fetching listings for calendar:', error);
+    if (error.response) {
+      const status = error.response.status;
+      const data = error.response.data;
+      if (status === 401) {
+        throw new Error('Authentication failed. Please log in again.');
+      } else {
+        throw new Error(`Failed to load listings: ${data?.message || data?.code || status}`);
+      }
+    } else if (error.request) {
+      throw new Error('No response from server. Please check your connection.');
+    } else {
+      throw new Error(`Error: ${error.message}`);
+    }
   }
 };
+
+// Check if we're using listings fallback
+export const isUsingListingsFallback = () => usingListingsFallback;
 
 export const getHouse = async (id) => {
   try {
@@ -604,5 +633,100 @@ export const updateHouseDates = async (id, dates) => {
   }
 };
 
+// Update house dates (uses listings endpoint with available_dates field)
+export const updateHouseDate = async (houseId, dates, isOwner = false) => {
+  try {
+    // Get current listing to merge dates
+    const listing = await getListing(houseId);
+    const currentDatesStr = listing.available_dates || listing.meta?.available_dates || '';
+    const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+    
+    // Add new dates that aren't already present
+    const datesToAdd = dates.filter(date => !currentDates.includes(date));
+    const updatedDates = [...currentDates, ...datesToAdd];
+    const datesString = updatedDates.join(',');
+    
+    // Update using the available_dates field directly
+    // Method 1: Update as top-level field (most reliable)
+    try {
+      await updateListing(houseId, {
+        available_dates: datesString,
+        meta: {
+          available_dates: datesString,
+        },
+      });
+    } catch (e1) {
+      // Method 2: Update via meta field only
+      try {
+        await updateListingMetaField(houseId, 'available_dates', datesString);
+      } catch (e2) {
+        throw new Error(`Failed to save dates: ${e2.message || 'Unknown error'}`);
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating listing dates:', error);
+    throw new Error(`Failed to update dates: ${error.message || 'Unknown error'}`);
+  }
+};
+
+// Remove house dates (uses listings endpoint with available_dates field)
+// isOwner: true = Owner (removes from available_dates and adds to owner_available_dates)
+// isOwner: false = Admin (removes from available_dates only)
+export const removeHouseDate = async (houseId, dates, isOwner = false) => {
+  try {
+    // Get current listing to remove dates
+    const listing = await getListing(houseId);
+    const currentDatesStr = listing.available_dates || listing.meta?.available_dates || '';
+    const currentDates = currentDatesStr ? currentDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+    
+    // Remove specified dates from available_dates
+    const updatedDates = currentDates.filter(date => !dates.includes(date));
+    const datesString = updatedDates.join(',');
+    
+    // Prepare update data
+    const updateData = {
+      available_dates: datesString,
+      meta: {
+        available_dates: datesString,
+      },
+    };
+    
+    // If Owner: add removed dates to owner_available_dates
+    if (isOwner) {
+      const ownerDatesStr = listing.meta?.owner_available_dates || '';
+      const ownerDates = ownerDatesStr ? ownerDatesStr.split(',').map(d => d.trim()).filter(Boolean) : [];
+      // Add dates that aren't already in owner_available_dates
+      const datesToAddToOwner = dates.filter(date => !ownerDates.includes(date));
+      const updatedOwnerDates = [...ownerDates, ...datesToAddToOwner];
+      updateData.meta.owner_available_dates = updatedOwnerDates.join(',');
+    }
+    // If Admin: just remove from available_dates (owner_available_dates stays unchanged)
+    
+    // Update using the available_dates field directly
+    // Method 1: Update as top-level field (most reliable)
+    try {
+      await updateListing(houseId, updateData);
+    } catch (e1) {
+      // Method 2: Update via meta field only
+      try {
+        await updateListingMetaField(houseId, 'available_dates', datesString);
+        if (isOwner && updateData.meta.owner_available_dates) {
+          await updateListingMetaField(houseId, 'owner_available_dates', updateData.meta.owner_available_dates);
+        }
+      } catch (e2) {
+        throw new Error(`Failed to remove dates: ${e2.message || 'Unknown error'}`);
+      }
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error removing listing dates:', error);
+    throw new Error(`Failed to remove dates: ${error.message || 'Unknown error'}`);
+  }
+};
+
 export default api;
+
 
