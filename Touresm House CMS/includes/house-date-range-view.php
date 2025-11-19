@@ -238,7 +238,13 @@ function house_date_range_view_func() {
             <option value="Medium" <?php selected($size_filter, 'Medium'); ?>>Дунд хаусууд</option>
             <option value="Small" <?php selected($size_filter, 'Small'); ?>>Жижиг хаусууд</option>
         </select>
-        <button type="button" id="reset-btn" style="width:100%; background:#343a40; color:white; border:none; padding: 15px 0; border-radius:4px; font-size: 0.95rem; font-weight: 500;">Дахин эхлэх</button>
+        <span style="border: 1px solid #e9ecef; color: #dc3545; padding: 6px 10px; font-size: 12px; border-radius: 5px; display: inline-block;">
+    Таны сонгосон өдрүүдийн хүрээнд сул/захиалагдсан өдрүүд харагдана. 1 өдөр шалгах бол хоёр талд нь ижил өдрийг сонгоно уу.
+</span>
+        <div style="display:flex; gap:10px; width:100%; flex-wrap:wrap;">
+            <button type="submit" id="search-btn" style="flex:1 1 200px; background:#ef233c; color:white; border:none; padding: 12px 0; border-radius:4px; font-size: 0.95rem; font-weight: 600;">Хайх</button>
+            <button type="button" id="reset-btn" style="flex:1 1 200px; background:#343a40; color:white; border:none; padding: 12px 0; border-radius:4px; font-size: 0.95rem; font-weight: 500;">Дахин эхлэх</button>
+        </div>
     </form>
 
     <div class="house-card-wrapper" style="display: flex; flex-wrap: wrap; gap: 20px;">
@@ -309,7 +315,7 @@ function house_date_range_view_func() {
                             colors="primary:#e63946"
                             style="width:20px;height:20px;">
                         </lord-icon>
-                        <span style="font-weight: bold; color: #212529;">Нийт <span style="color: #ef233c;">' . $total_results . '</span> ' . ($size_filter ? '<span style="color: #ef233c;">' . (isset($size_labels[$size_filter]) ? str_replace(['Том', 'Дунд', 'Жижиг'], ['том', 'дунд', 'жижиг'], $size_labels[$size_filter]) : strtolower($size_filter)) . '</span> ' : '') . 'хаус олдлоо.</span>
+                        <span style="font-weight: bold; color: #212529;">Нийт <span style="color: #ef233c;">' . $total_results . '</span> ' . ($size_filter ? '<span style="color: #ef233c;">' . (isset($size_labels[$size_filter]) ? str_replace(['Том', 'Дунд', 'Жижиг'], ['том', 'дунд', 'жижиг'], $size_labels[$size_filter]) : strtolower($size_filter)) . '</span> ' : '') . 'илэрц олдлоо.</span>
                     </span>
                 </div>
             ';
@@ -429,13 +435,13 @@ function house_date_range_view_func() {
                 
                     <!-- Available Dates Badges -->
                     <div class="house-card__meta">
-                      <strong>Сул өдрүүд:</strong>
+                      <strong style="color: #28a745;">Сул өдрүүд:</strong>
                       <?php echo wp_kses_post($available_text); ?>
                     </div>
                 
-                    <!-- Unavailable Dates Badges -->
+                    <!-- Unavailable Dates Badges #dc3545 -->
                     <div class="house-card__meta">
-                      <strong>Захиалагдсан өдрүүд:</strong>
+                      <strong style="color: #dc3545;">Захиалагдсан өдрүүд:</strong>
                       <?php echo wp_kses_post($unavailable_text); ?>
                     </div>
                 
@@ -1074,26 +1080,6 @@ function house_date_range_view_func() {
             window.location.href = baseUrl;
         });
 
-        // Enable/disable Хайх button based on date fields
-        const startInput = document.getElementById('start_date');
-        const endInput = document.getElementById('end_date');
-        const searchBtn = document.getElementById('search-btn');
-        
-        function toggleSearchBtn() {
-            if (startInput.value && endInput.value) {
-                searchBtn.disabled = false;
-                searchBtn.style.opacity = '1';
-                searchBtn.style.cursor = 'pointer';
-            } else {
-                searchBtn.disabled = true;
-                searchBtn.style.opacity = '0.6';
-                searchBtn.style.cursor = 'not-allowed';
-            }
-        }
-        
-        toggleSearchBtn();
-        startInput.addEventListener('input', toggleSearchBtn);
-        endInput.addEventListener('input', toggleSearchBtn);
     });
     </script>
 
