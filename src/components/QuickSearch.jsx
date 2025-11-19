@@ -13,7 +13,6 @@ const QuickSearch = ({ locations = [], onSearch }) => {
     guests: 1,
   });
 
-
   const handleDateChange = (field, date) => {
     if (field === 'checkIn') {
       setCheckInDate(date);
@@ -46,6 +45,9 @@ const QuickSearch = ({ locations = [], onSearch }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (checkInDate && checkOutDate && checkOutDate < checkInDate) {
+      return;
+    }
     if (onSearch) {
       onSearch(searchData);
     }

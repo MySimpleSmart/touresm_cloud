@@ -13,6 +13,7 @@ const Header = () => {
             />
             <h1 className="text-2xl font-bold text-primary-600">Touresm</h1>
           </Link>
+          <nav className="flex items-center gap-4" />
         </div>
       </div>
     </header>

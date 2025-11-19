@@ -1,8 +1,24 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { getListings, getCategories, getLocations, getSizes } from '../services/api';
 import ListingCard from './ListingCard';
 import QuickSearch from './QuickSearch';
+import {
+  matchesLocationFilter,
+  buildLocationLookup,
+  isListingAvailableForRange,
+  matchesCategoryFilter,
+} from '../utils/listingFilters';
+import AdvancedSearch from './AdvancedSearch';
+
+const initialFiltersState = {
+  search: '',
+  category: '',
+  location: '',
+  minPrice: '',
+  maxPrice: '',
+  checkIn: '',
+  checkOut: '',
+};
 
 const ListingList = () => {
   const [listings, setListings] = useState([]);
@@ -10,13 +26,8 @@ const ListingList = () => {
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
   const [sizes, setSizes] = useState([]);
-  const [filters, setFilters] = useState({
-    search: '',
-    category: '',
-    location: '',
-    minPrice: '',
-    maxPrice: '',
-  });
+  const [filters, setFilters] = useState(initialFiltersState);
+  const [quickFilters, setQuickFilters] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -24,7 +35,7 @@ const ListingList = () => {
 
   useEffect(() => {
     loadListings();
-  }, [filters]);
+  }, [filters, locations]);
 
   const loadData = async () => {
     try {
@@ -58,14 +69,12 @@ const ListingList = () => {
         params.listing_category = filters.category;
       }
       
-      if (filters.location) {
-        params.listing_location = filters.location;
-      }
+      const allListings = await getListings(params);
+      const locationLookup = buildLocationLookup(locations);
 
-      const data = await getListings(params);
-      
-      // Filter by price on client side if needed
-      let filteredData = data;
+      let filteredData = allListings.filter((listing) =>
+        matchesLocationFilter(listing, filters.location, locations, locationLookup)
+      );
       if (filters.minPrice) {
         filteredData = filteredData.filter(
           (listing) => listing.listing_price && listing.listing_price >= parseFloat(filters.minPrice)
@@ -74,6 +83,12 @@ const ListingList = () => {
       if (filters.maxPrice) {
         filteredData = filteredData.filter(
           (listing) => listing.listing_price && listing.listing_price <= parseFloat(filters.maxPrice)
+        );
+      }
+
+      if (filters.checkIn && filters.checkOut) {
+        filteredData = filteredData.filter((listing) =>
+          isListingAvailableForRange(listing, filters.checkIn, filters.checkOut)
         );
       }
       
@@ -90,14 +105,18 @@ const ListingList = () => {
   };
 
   const handleQuickSearch = (searchData) => {
-    // Update filters based on quick search
-    const newFilters = {
-      ...filters,
+    setFilters({
+      ...initialFiltersState,
       location: searchData.location || '',
-    };
-    setFilters(newFilters);
-    
-    // TODO: Implement check-in, check-out, and guest filtering when backend is ready
+      checkIn: searchData.checkIn || '',
+      checkOut: searchData.checkOut || '',
+    });
+
+    setQuickFilters({
+      locations: searchData.location ? [String(searchData.location)] : [],
+      checkIn: searchData.checkIn || '',
+      checkOut: searchData.checkOut || '',
+    });
   };
 
   if (loading && listings.length === 0) {
@@ -110,29 +129,43 @@ const ListingList = () => {
     );
   }
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Quick Search Section */}
-      <QuickSearch 
-        locations={locations} 
-        onSearch={handleQuickSearch}
-      />
-
-      {listings.length === 0 ? (
+  const renderDefaultGrid = () => {
+    if (listings.length === 0) {
+      return (
         <div className="text-center py-12">
           <p className="text-gray-500 text-lg">No listings found. Try adjusting your filters.</p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
-          {listings.map((listing) => (
-            <ListingCard 
-              key={listing.id} 
-              listing={listing}
-              taxonomies={{ categories, locations, sizes }}
-            />
-          ))}
-        </div>
-      )}
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {listings.map((listing) => (
+          <ListingCard
+            key={listing.id}
+            listing={listing}
+            taxonomies={{ categories, locations, sizes }}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  return quickFilters ? (
+    <AdvancedSearch
+      embedded
+      quickFilters={quickFilters}
+      onClose={() => {
+        setQuickFilters(null);
+        setFilters(initialFiltersState);
+      }}
+      listingsSeed={listings}
+      taxonomySeed={{ categories, locations }}
+    />
+  ) : (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <QuickSearch locations={locations} onSearch={handleQuickSearch} />
+      {renderDefaultGrid()}
     </div>
   );
 };

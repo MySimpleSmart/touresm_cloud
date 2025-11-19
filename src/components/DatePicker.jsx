@@ -1,7 +1,17 @@
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 
-const CustomDatePicker = ({ selected, onChange, onClear, placeholder, minDate, selectsStart, selectsEnd, startDate, endDate }) => {
+const CustomDatePicker = ({
+  selected,
+  onChange,
+  onClear,
+  placeholder,
+  minDate,
+  selectsStart,
+  selectsEnd,
+  startDate,
+  endDate,
+}) => {
   return (
     <div className="relative">
       <DatePicker

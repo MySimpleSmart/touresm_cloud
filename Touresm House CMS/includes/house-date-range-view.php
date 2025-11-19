@@ -429,13 +429,13 @@ function house_date_range_view_func() {
                 
                     <!-- Available Dates Badges -->
                     <div class="house-card__meta">
-                      <strong>Боломжтой өдрүүд:</strong>
+                      <strong>Сул өдрүүд:</strong>
                       <?php echo wp_kses_post($available_text); ?>
                     </div>
                 
                     <!-- Unavailable Dates Badges -->
                     <div class="house-card__meta">
-                      <strong>Боломжгүй өдрүүд:</strong>
+                      <strong>Захиалагдсан өдрүүд:</strong>
                       <?php echo wp_kses_post($unavailable_text); ?>
                     </div>
                 
