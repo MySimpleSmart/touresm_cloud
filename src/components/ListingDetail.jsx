@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getListing, getAmenities, getCategories, getLocations, getSizes, getMedia, getMediaByParent } from '../services/api';
 import ImageGallery from './ImageGallery';
@@ -18,6 +18,164 @@ const ListingDetail = () => {
   const [endDate, setEndDate] = useState(null);
   const [guestCount, setGuestCount] = useState(1);
   const [totalPrice, setTotalPrice] = useState(null);
+  const [dateError, setDateError] = useState('');
+
+  const blockedDateSet = useMemo(() => {
+    if (!listing) return new Set();
+
+    const meta = listing.meta || {};
+    const sources = [
+      listing.admin_blocked_days,
+      listing.host_blocked_days,
+      meta?.admin_blocked_days,
+      meta?.host_blocked_days,
+      meta?.listing_admin_blocked_days,
+      meta?.listing_host_blocked_days,
+    ];
+
+    const blocked = new Set();
+
+    const addDate = (rawDate) => {
+      if (!rawDate) return;
+      const value = String(rawDate).trim();
+      if (!value) return;
+
+      const normalized = value.includes('T') ? value.split('T')[0] : value;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+        blocked.add(normalized);
+        return;
+      }
+
+      const parsed = new Date(value);
+      if (!Number.isNaN(parsed)) {
+        blocked.add(parsed.toISOString().split('T')[0]);
+      }
+    };
+
+    const parseSource = (source) => {
+      if (!source) return;
+      if (Array.isArray(source)) {
+        source.forEach((entry) => {
+          if (typeof entry === 'string' || typeof entry === 'number') {
+            addDate(entry);
+          } else if (entry && typeof entry === 'object') {
+            addDate(entry.date || entry.day || entry.dateString || entry.value);
+            if (entry.dates) {
+              parseSource(entry.dates);
+            }
+          }
+        });
+        return;
+      }
+      if (typeof source === 'string' || typeof source === 'number') {
+        String(source)
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean)
+          .forEach(addDate);
+        return;
+      }
+      if (typeof source === 'object') {
+        if (Array.isArray(source.dates)) {
+          parseSource(source.dates);
+        } else if (typeof source.dates === 'string') {
+          parseSource(source.dates);
+        }
+      }
+    };
+
+    sources.forEach(parseSource);
+    return blocked;
+  }, [listing]);
+
+  const isDateSelectable = useCallback(
+    (date) => {
+      if (!date || !(date instanceof Date)) return true;
+      const iso = date.toISOString().split('T')[0];
+      return !blockedDateSet.has(iso);
+    },
+    [blockedDateSet]
+  );
+
+  const hasBlockedDateInRange = useCallback(
+    (start, end) => {
+      if (!start || !end) return false;
+      const current = new Date(start);
+      current.setHours(0, 0, 0, 0);
+      const last = new Date(end);
+      last.setHours(0, 0, 0, 0);
+      while (current <= last) {
+        const iso = current.toISOString().split('T')[0];
+        if (blockedDateSet.has(iso)) {
+          return true;
+        }
+        current.setDate(current.getDate() + 1);
+      }
+      return false;
+    },
+    [blockedDateSet]
+  );
+
+  useEffect(() => {
+    if (startDate) {
+      const iso = startDate.toISOString().split('T')[0];
+      if (blockedDateSet.has(iso)) {
+        setStartDate(null);
+      }
+    }
+    if (endDate) {
+      const iso = endDate.toISOString().split('T')[0];
+      if (blockedDateSet.has(iso)) {
+        setEndDate(null);
+      }
+    }
+  }, [blockedDateSet, startDate, endDate]);
+
+  const handleStartDateChange = (date) => {
+    setDateError('');
+    if (!date) {
+      setStartDate(null);
+      setEndDate(null);
+      return;
+    }
+
+    setStartDate(date);
+
+    if (endDate && date > endDate) {
+      setEndDate(null);
+      return;
+    }
+
+    if (endDate && hasBlockedDateInRange(date, endDate)) {
+      setEndDate(null);
+      setDateError('Selected range includes unavailable dates. Please choose continuous available days.');
+    }
+  };
+
+  const handleEndDateChange = (date) => {
+    setDateError('');
+    if (!date) {
+      setEndDate(null);
+      return;
+    }
+
+    if (!startDate) {
+      setDateError('Select a check-in date before choosing a check-out date.');
+      return;
+    }
+
+    if (date < startDate) {
+      setDateError('Check-out date must be after the check-in date.');
+      return;
+    }
+
+    if (hasBlockedDateInRange(startDate, date)) {
+      setDateError('Selected range includes unavailable dates. Please choose continuous available days.');
+      return;
+    }
+
+    setEndDate(date);
+  };
 
   useEffect(() => {
     loadListing();
@@ -822,6 +980,11 @@ const ListingDetail = () => {
       return;
     }
 
+    if (hasBlockedDateInRange(startDate, endDate)) {
+      setTotalPrice(null);
+      return;
+    }
+
     const nightlyRate = parseFloat(listing.listing_price);
     if (Number.isNaN(nightlyRate)) {
       setTotalPrice(null);
@@ -842,11 +1005,11 @@ const ListingDetail = () => {
       total: nightlyRate * diffDays,
       nights: diffDays,
     });
-  }, [listing?.listing_price, startDate, endDate]);
+  }, [listing?.listing_price, startDate, endDate, hasBlockedDateInRange]);
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
         </div>
@@ -856,7 +1019,7 @@ const ListingDetail = () => {
 
   if (!listing) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12">
           <p className="text-gray-500 text-lg mb-4">Listing not found.</p>
           <Link
@@ -871,7 +1034,7 @@ const ListingDetail = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <button
         onClick={() => navigate(-1)}
         className="mb-6 text-primary-600 hover:text-primary-700 font-medium flex items-center"
@@ -1260,17 +1423,17 @@ const ListingDetail = () => {
                       </label>
                       <CustomDatePicker
                         selected={startDate}
-                        onChange={(date) => {
-                          setStartDate(date);
-                          if (endDate && date && date > endDate) {
-                            setEndDate(null);
-                          }
+                        onChange={handleStartDateChange}
+                        onClear={() => {
+                          setStartDate(null);
+                          setEndDate(null);
+                          setDateError('');
                         }}
-                        onClear={() => setStartDate(null)}
                         placeholder="Check-in date"
                         selectsStart
                         startDate={startDate}
                         endDate={endDate}
+                        filterDate={isDateSelectable}
                       />
                       {listing.check_in_time && (
                         <p className="mt-1 text-xs text-gray-500">
@@ -1284,13 +1447,17 @@ const ListingDetail = () => {
                       </label>
                       <CustomDatePicker
                         selected={endDate}
-                        onChange={(date) => setEndDate(date)}
-                        onClear={() => setEndDate(null)}
+                        onChange={handleEndDateChange}
+                        onClear={() => {
+                          setEndDate(null);
+                          setDateError('');
+                        }}
                         placeholder="Check-out date"
                         selectsEnd
                         startDate={startDate}
                         endDate={endDate}
                         minDate={startDate || new Date()}
+                        filterDate={isDateSelectable}
                       />
                       {listing.check_out_time && (
                         <p className="mt-1 text-xs text-gray-500">
@@ -1298,6 +1465,11 @@ const ListingDetail = () => {
                         </p>
                       )}
                     </div>
+                    {dateError && (
+                      <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+                        {dateError}
+                      </div>
+                    )}
                     {(listing.check_in_time || listing.check_out_time) && (
                       <div className="rounded-lg border border-gray-200 bg-white p-3">
                         <div className="flex items-center justify-between text-sm">

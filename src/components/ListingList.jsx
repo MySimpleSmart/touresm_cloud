@@ -121,7 +121,7 @@ const ListingList = () => {
 
   if (loading && listings.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
         </div>
@@ -163,7 +163,7 @@ const ListingList = () => {
       taxonomySeed={{ categories, locations }}
     />
   ) : (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       <QuickSearch locations={locations} onSearch={handleQuickSearch} />
       {renderDefaultGrid()}
     </div>

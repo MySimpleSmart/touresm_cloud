@@ -11,6 +11,7 @@ const CustomDatePicker = ({
   selectsEnd,
   startDate,
   endDate,
+  filterDate,
 }) => {
   return (
     <div className="relative">
@@ -22,6 +23,7 @@ const CustomDatePicker = ({
         selectsEnd={selectsEnd}
         startDate={startDate}
         endDate={endDate}
+        filterDate={filterDate}
         placeholderText={placeholder}
         dateFormat="MMM dd, yyyy"
         className="w-full px-4 py-3 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer"
