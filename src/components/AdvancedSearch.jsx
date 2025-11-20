@@ -50,6 +50,8 @@ const AdvancedSearch = ({
     checkIn: '',
     checkOut: '',
   });
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
@@ -120,6 +122,33 @@ const AdvancedSearch = ({
       checkOut: quickFilters.checkOut || '',
     }));
   }, [quickFilters]);
+
+  useEffect(() => {
+    const updateIsMobile = () => {
+      if (typeof window === 'undefined') return;
+      setIsMobile(window.matchMedia('(max-width: 768px)').matches);
+    };
+    updateIsMobile();
+    window.addEventListener('resize', updateIsMobile);
+    return () => window.removeEventListener('resize', updateIsMobile);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileFiltersOpen(false);
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (mobileFiltersOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileFiltersOpen]);
 
   const filteredListings = useMemo(() => {
     return listings.filter((listing) => {
@@ -534,6 +563,176 @@ const AdvancedSearch = ({
     </div>
   );
 
+  const renderFilterForm = ({ hideClearAction = false } = {}) => (
+    <div className="space-y-8">
+      <div>
+        <label className="block text-sm font-semibold text-gray-900 mb-2 uppercase tracking-wide">
+          Keyword
+        </label>
+        <input
+          type="text"
+          value={filters.search}
+          onChange={(e) => handleInputChange('search', e.target.value)}
+          placeholder="Search by listing name..."
+          className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+        />
+      </div>
+
+      {renderCategoryFilters()}
+
+      {renderLocationFilters()}
+
+      <div>
+        <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wide">
+          Price Range (₮)
+        </label>
+        <p className="text-base font-semibold text-gray-900 mt-1">
+          ₮{Math.min(filters.minPrice, filters.maxPrice).toLocaleString()} – ₮
+          {Math.max(filters.minPrice, filters.maxPrice).toLocaleString()}
+        </p>
+        <div className="mt-4 space-y-4">
+          <div className="price-range-slider relative h-10 flex items-center">
+            <div className="absolute inset-x-0 h-1 bg-gray-200 rounded-full" />
+            <div
+              className="absolute h-1 bg-primary-500 rounded-full"
+              style={{
+                left: `${sliderMinPercent}%`,
+                right: `${100 - sliderMaxPercent}%`,
+              }}
+            />
+            <input
+              type="range"
+              min={PRICE_MIN}
+              max={PRICE_MAX}
+              step={PRICE_STEP}
+              value={Number(filters.minPrice)}
+              onChange={(e) => handleMinPriceSlider(Number(e.target.value))}
+              className="slider-thumb thumb-left"
+              aria-label="Minimum price"
+            />
+            <input
+              type="range"
+              min={PRICE_MIN}
+              max={PRICE_MAX}
+              step={PRICE_STEP}
+              value={Number(filters.maxPrice)}
+              onChange={(e) => handleMaxPriceSlider(Number(e.target.value))}
+              className="slider-thumb thumb-right"
+              aria-label="Maximum price"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                Min
+              </label>
+              <input
+                type="number"
+                min={PRICE_MIN}
+                max={filters.maxPrice}
+                value={filters.minPrice}
+                onChange={(e) =>
+                  handleMinPriceSlider(e.target.value === '' ? PRICE_MIN : Number(e.target.value))
+                }
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                Max
+              </label>
+              <input
+                type="number"
+                min={filters.minPrice}
+                max={PRICE_MAX}
+                value={filters.maxPrice}
+                onChange={(e) =>
+                  handleMaxPriceSlider(e.target.value === '' ? PRICE_MAX : Number(e.target.value))
+                }
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wide mb-2">
+          Date Range
+        </label>
+        <div className="grid grid-cols-2 gap-4">
+          <input
+            type="date"
+            value={filters.checkIn}
+            onChange={(e) => handleInputChange('checkIn', e.target.value)}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+          />
+          <input
+            type="date"
+            value={filters.checkOut}
+            min={filters.checkIn || undefined}
+            onChange={(e) => handleInputChange('checkOut', e.target.value)}
+            className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wide">
+            Rooms
+          </label>
+          <input
+            type="text"
+            value={filters.minRooms}
+            onChange={(e) => handleNumericInput('minRooms', e.target.value)}
+            placeholder="Min"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wide">
+            Beds
+          </label>
+          <input
+            type="text"
+            value={filters.minBeds}
+            onChange={(e) => handleNumericInput('minBeds', e.target.value)}
+            placeholder="Min"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wide">
+            Guests
+          </label>
+          <input
+            type="text"
+            value={filters.minGuests}
+            onChange={(e) => handleNumericInput('minGuests', e.target.value)}
+            placeholder="Min"
+            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+          />
+        </div>
+      </div>
+
+      {renderAmenityFilters()}
+
+      {!hideClearAction && (
+        <div className="pt-4 border-t border-gray-100">
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-60"
+            disabled={!hasActiveFilters}
+          >
+            Clear Filters
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
   const hasActiveFilters =
     filters.search ||
     filters.categories.length > 0 ||
@@ -618,6 +817,7 @@ const AdvancedSearch = ({
   } else if (filters.checkOut) {
     activeChips.push(`Until: ${formatDateLabel(filters.checkOut)}`);
   }
+  const appliedFiltersCount = activeChips.length;
 
   const handleMinPriceSlider = (value) => {
     const numeric = Math.max(PRICE_MIN, Math.min(Number(value), PRICE_MAX));
@@ -675,176 +875,46 @@ const AdvancedSearch = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8">
-        <aside className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-8 h-fit">
-          <div>
-            <label className="block text-sm font-semibold text-gray-900 mb-2 uppercase tracking-wide">
-              Keyword
-            </label>
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => handleInputChange('search', e.target.value)}
-              placeholder="Search by listing name..."
-              className="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-            />
-          </div>
-
-          {renderCategoryFilters()}
-
-          {renderLocationFilters()}
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wide">
-              Price Range (₮)
-            </label>
-            <p className="text-base font-semibold text-gray-900 mt-1">
-              ₮{Math.min(filters.minPrice, filters.maxPrice).toLocaleString()} – ₮
-              {Math.max(filters.minPrice, filters.maxPrice).toLocaleString()}
-            </p>
-            <div className="mt-4 space-y-4">
-              <div className="price-range-slider relative h-10 flex items-center">
-                <div className="absolute inset-x-0 h-1 bg-gray-200 rounded-full" />
-                <div
-                  className="absolute h-1 bg-primary-500 rounded-full"
-                  style={{
-                    left: `${sliderMinPercent}%`,
-                    right: `${100 - sliderMaxPercent}%`,
-                  }}
-                />
-                <input
-                  type="range"
-                  min={PRICE_MIN}
-                  max={PRICE_MAX}
-                  step={PRICE_STEP}
-                  value={Number(filters.minPrice)}
-                  onChange={(e) => handleMinPriceSlider(Number(e.target.value))}
-                  className="slider-thumb thumb-left"
-                  aria-label="Minimum price"
-                />
-                <input
-                  type="range"
-                  min={PRICE_MIN}
-                  max={PRICE_MAX}
-                  step={PRICE_STEP}
-                  value={Number(filters.maxPrice)}
-                  onChange={(e) => handleMaxPriceSlider(Number(e.target.value))}
-                  className="slider-thumb thumb-right"
-                  aria-label="Maximum price"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-                    Min
-                  </label>
-                  <input
-                    type="number"
-                    min={PRICE_MIN}
-                    max={filters.maxPrice}
-                    value={filters.minPrice}
-                    onChange={(e) =>
-                      handleMinPriceSlider(
-                        e.target.value === '' ? PRICE_MIN : Number(e.target.value)
-                      )
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
-                    Max
-                  </label>
-                  <input
-                    type="number"
-                    min={filters.minPrice}
-                    max={PRICE_MAX}
-                    value={filters.maxPrice}
-                    onChange={(e) =>
-                      handleMaxPriceSlider(
-                        e.target.value === '' ? PRICE_MAX : Number(e.target.value)
-                      )
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wide mb-2">
-              Date Range
-            </label>
-            <div className="grid grid-cols-2 gap-4">
-              <input
-                type="date"
-                value={filters.checkIn}
-                onChange={(e) => handleInputChange('checkIn', e.target.value)}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+      {isMobile && (
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen(true)}
+            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:border-gray-300"
+          >
+            <svg
+              className="w-4 h-4 text-primary-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 4h18M6 8h12M9 12h6m2 4H7"
               />
-              <input
-                type="date"
-                value={filters.checkOut}
-                min={filters.checkIn || undefined}
-                onChange={(e) => handleInputChange('checkOut', e.target.value)}
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wide">
-                Rooms
-              </label>
-              <input
-                type="text"
-                value={filters.minRooms}
-                onChange={(e) => handleNumericInput('minRooms', e.target.value)}
-                placeholder="Min"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wide">
-                Beds
-              </label>
-              <input
-                type="text"
-                value={filters.minBeds}
-                onChange={(e) => handleNumericInput('minBeds', e.target.value)}
-                placeholder="Min"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-900 mb-2 uppercase tracking-wide">
-                Guests
-              </label>
-              <input
-                type="text"
-                value={filters.minGuests}
-                onChange={(e) => handleNumericInput('minGuests', e.target.value)}
-                placeholder="Min"
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-              />
-            </div>
-          </div>
-
-          {renderAmenityFilters()}
-
-          <div className="pt-4 border-t border-gray-100">
+            </svg>
+            Filters {appliedFiltersCount ? `(${appliedFiltersCount})` : ''}
+          </button>
+          {hasActiveFilters && (
             <button
               type="button"
               onClick={clearFilters}
-              className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-60"
-              disabled={!hasActiveFilters}
+              className="text-sm font-semibold text-primary-600 underline-offset-2 hover:underline"
             >
-              Clear Filters
+              Clear
             </button>
-          </div>
-        </aside>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8">
+        {!isMobile && (
+          <aside className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 h-fit">
+            {renderFilterForm()}
+          </aside>
+        )}
 
         <section className="space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -895,6 +965,52 @@ const AdvancedSearch = ({
           )}
         </section>
       </div>
+
+      {isMobile && mobileFiltersOpen && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setMobileFiltersOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="absolute inset-x-0 bottom-0 top-4 bg-white rounded-t-3xl shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Filters</p>
+                <h3 className="text-lg font-semibold text-gray-900">Refine search</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileFiltersOpen(false)}
+                className="rounded-full border border-gray-200 p-2 text-gray-500 hover:text-gray-700"
+                aria-label="Close filters"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-8 pb-6">{renderFilterForm({ hideClearAction: true })}</div>
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex gap-3">
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="w-1/3 rounded-full border border-gray-200 bg-white py-2 font-semibold text-gray-700 disabled:opacity-50"
+                disabled={!hasActiveFilters}
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileFiltersOpen(false)}
+                className="flex-1 rounded-full bg-primary-600 py-2 font-semibold text-white hover:bg-primary-700 transition-colors"
+              >
+                Show {loading ? '' : filteredListings.length} results
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };

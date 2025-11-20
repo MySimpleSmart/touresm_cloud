@@ -247,6 +247,24 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
     setHoveredParentId(null);
   };
 
+  const toggleDropdown = () => {
+    setIsOpen((prev) => {
+      const next = !prev;
+      if (!next) {
+        setHoveredParentId(null);
+        setSearchQuery('');
+      } else {
+        setTimeout(() => {
+          if (searchInputRef.current) {
+            searchInputRef.current.focus();
+            searchInputRef.current.select();
+          }
+        }, 0);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="relative" ref={dropdownRef}>
       {/* Input field that acts as both display and search */}
@@ -313,7 +331,14 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
               }, 200);
             }}
             placeholder={isOpen ? "Search locations..." : placeholder}
-            className={`w-full px-4 ${paddingClass} ${isOpen && searchQuery ? 'pr-20' : 'pr-10'} border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white hover:border-gray-400 transition-colors ${className}`}
+            className={`w-full px-4 ${paddingClass} ${
+              isOpen && searchQuery ? 'pr-20' : 'pr-10'
+            } border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent bg-white hover:border-gray-400 transition-colors ${className}`}
+            onClick={() => {
+              if (!isOpen) {
+                handleInputFocus();
+              }
+            }}
           />
         )}
         {/* Clear search icon - only show when open and has search query */}
@@ -339,20 +364,27 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
             </svg>
           </button>
         )}
-        {(!selectedLocation || isOpen) && (
-          <svg
-            className={`absolute right-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none transition-transform ${isOpen ? 'rotate-180' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        {isOpen && (
+          <button
+            type="button"
+            onClick={toggleDropdown}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 rounded-full focus:outline-none focus:ring-2 focus:ring-primary-200"
+            aria-label="Close locations dropdown"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 9l-7 7-7-7"
-            />
-          </svg>
+            <svg
+              className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          </button>
         )}
       </div>
 
@@ -387,42 +419,57 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
                 className="relative group"
                 onMouseLeave={!mobile && hasChildren ? () => handleParentLeave(parentId) : undefined}
               >
-                <button
-                  ref={(el) => {
-                    if (el) parentButtonRefs.current[parentId] = el;
-                  }}
-                  type="button"
-                  onClick={() => {
-                    if (mobile && hasChildren) {
-                      setHoveredParentId((prev) => (prev === parentId ? null : parentId));
-                    } else {
-                      handleSelect(parentId);
-                    }
-                  }}
-                  onMouseEnter={!mobile && hasChildren ? (e) => handleParentHover(parentId, e) : undefined}
-                  className={`w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center justify-between ${
+                <div
+                  className={`flex w-full items-center justify-between px-4 py-3 ${
                     isSelected ? 'bg-primary-50 text-primary-600 font-medium' : 'text-gray-900'
-                  }`}
+                  } ${hasChildren ? 'space-x-3' : ''} hover:bg-gray-50 transition-colors`}
                 >
-                  <span>{parent.name}</span>
+                  <button
+                    ref={(el) => {
+                      if (el) parentButtonRefs.current[parentId] = el;
+                    }}
+                    type="button"
+                    className="flex-1 text-left"
+                    onClick={() => handleSelect(parentId)}
+                    onMouseEnter={
+                      !mobile && hasChildren ? (e) => handleParentHover(parentId, e) : undefined
+                    }
+                  >
+                    {parent.name}
+                  </button>
                   {hasChildren && (
-                    <svg
-                      className={`w-4 h-4 text-gray-400 transition-transform ${
-                        mobile && hoveredParentId === parentId ? 'rotate-90' : ''
-                      }`}
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (mobile) {
+                          setHoveredParentId((prev) => (prev === parentId ? null : parentId));
+                        }
+                      }}
+                      onMouseEnter={
+                        !mobile && hasChildren ? (e) => handleParentHover(parentId, e) : undefined
+                      }
+                      className="rounded-full border border-gray-200 p-1 text-gray-500 hover:text-gray-700"
+                      aria-label="Show sub locations"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 5l7 7-7 7"
-                      />
-                    </svg>
+                      <svg
+                        className={`w-4 h-4 transition-transform ${
+                          mobile && hoveredParentId === parentId ? 'rotate-90' : ''
+                        }`}
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 5l7 7-7 7"
+                        />
+                      </svg>
+                    </button>
                   )}
-                </button>
+                </div>
 
                 {/* Sub-dropdown for children */}
                 {hasChildren && !mobile && isHovered && typeof document !== 'undefined' && createPortal(
