@@ -165,7 +165,7 @@ const ListingDetail = () => {
     }
 
     if (date < startDate) {
-      setDateError('Check-out date must be after the check-in date.');
+      setDateError('Check-out date must be on or after the check-in date.');
       return;
     }
 
@@ -650,6 +650,30 @@ const ListingDetail = () => {
     return time;
   };
 
+  const handleBookingConfirm = () => {
+    if (!totalPrice || !startDate || !endDate || !listing) return;
+    navigate(`/booking/${listing.id}/confirm`, {
+      state: {
+        listing: {
+          id: listing.id,
+          listing_name: listing.listing_name,
+          listing_gallery: listing.listing_gallery,
+          listing_price: listing.listing_price,
+          listing_region: listing.listing_region,
+          listing_location: listing.listing_location,
+          listing_familiar_location: listing.listing_familiar_location,
+          room_number: listing.room_number,
+          listing_bed_number: listing.listing_bed_number,
+          guest_max_number: listing.guest_max_number,
+        },
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        guestCount,
+        totalPrice,
+      },
+    });
+  };
+
   // Helper function to get location display text with parent
   const getLocationDisplay = (term, locationsList) => {
     if (!term || !locationsList) return null;
@@ -994,16 +1018,18 @@ const ListingDetail = () => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     const diffTime = end.getTime() - start.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const rawDiffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    if (diffDays <= 0) {
+    if (rawDiffDays < 0) {
       setTotalPrice(null);
       return;
     }
 
+    const nights = Math.max(rawDiffDays, 1);
+
     setTotalPrice({
-      total: nightlyRate * diffDays,
-      nights: diffDays,
+      total: nightlyRate * nights,
+      nights,
     });
   }, [listing?.listing_price, startDate, endDate, hasBlockedDateInRange]);
 
@@ -1394,7 +1420,7 @@ const ListingDetail = () => {
             </div>
 
             <aside className="w-full lg:w-96">
-              <div className="sticky top-24">
+            <div className="sticky top-24">
                 <div className="space-y-6 rounded-2xl border border-gray-200 bg-gray-50 p-6 shadow-sm">
                   <div>
                     {listing.listing_price ? (
@@ -1413,6 +1439,11 @@ const ListingDetail = () => {
                         <p className="text-2xl font-semibold text-gray-900">Price on request</p>
                         <p className="text-sm text-gray-500">Contact the host for pricing</p>
                       </>
+                    )}
+                    {totalPrice && (
+                      <div className="mt-3 rounded-xl border border-primary-100 bg-white px-4 py-2 text-sm text-primary-700 font-semibold">
+                        Deposit (30%): {formatPrice(totalPrice.total * 0.3)}
+                      </div>
                     )}
         </div>
 
@@ -1553,6 +1584,7 @@ const ListingDetail = () => {
                   <button
                     type="button"
                     disabled={!totalPrice}
+                    onClick={handleBookingConfirm}
                     className={`inline-flex w-full items-center justify-center rounded-full px-5 py-3 font-semibold text-white shadow-lg shadow-primary-200/60 transition-all duration-200 ${
                       totalPrice
                         ? 'bg-primary-600 hover:bg-primary-700'

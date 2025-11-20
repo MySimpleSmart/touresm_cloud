@@ -161,4 +161,3 @@ export const getMediaByParent = async (parentId, params = {}) => {
     throw error;
   }
 };
-
