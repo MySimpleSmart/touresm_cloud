@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
-const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All Locations", className = "" }) => {
+const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All Locations", className = "", mobile = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredParentId, setHoveredParentId] = useState(null);
@@ -198,11 +198,7 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
     if (!isOpen) {
       setIsOpen(true);
     }
-    // Clear selection and search when focusing to allow new search
-    if (value) {
-      onChange('');
-    }
-    setSearchQuery('');
+    setSearchQuery(selectedLocation ? selectedLocation.name : '');
   };
 
   const handleClearSearch = (e) => {
@@ -295,14 +291,23 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
           <input
             ref={searchInputRef}
             type="text"
-            value={isOpen ? searchQuery : (selectedLocation ? selectedLocation.name : '')}
+            value={
+              isOpen
+                ? (searchQuery || (selectedLocation ? selectedLocation.name : ''))
+                : (selectedLocation ? selectedLocation.name : '')
+            }
             onChange={handleInputChange}
             onFocus={handleInputFocus}
             onBlur={(e) => {
+              if (mobile) {
+                return;
+              }
               // Don't close if clicking on dropdown items
               setTimeout(() => {
-                if (!dropdownRef.current?.contains(document.activeElement) && 
-                    !submenuRef.current?.contains(document.activeElement)) {
+                if (
+                  !dropdownRef.current?.contains(document.activeElement) &&
+                  !submenuRef.current?.contains(document.activeElement)
+                ) {
                   handleClose();
                 }
               }, 200);
@@ -380,15 +385,21 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
               <div
                 key={parentId}
                 className="relative group"
-                onMouseLeave={hasChildren ? () => handleParentLeave(parentId) : undefined}
+                onMouseLeave={!mobile && hasChildren ? () => handleParentLeave(parentId) : undefined}
               >
                 <button
                   ref={(el) => {
                     if (el) parentButtonRefs.current[parentId] = el;
                   }}
                   type="button"
-                  onClick={() => handleSelect(parentId)}
-                  onMouseEnter={(e) => hasChildren && handleParentHover(parentId, e)}
+                  onClick={() => {
+                    if (mobile && hasChildren) {
+                      setHoveredParentId((prev) => (prev === parentId ? null : parentId));
+                    } else {
+                      handleSelect(parentId);
+                    }
+                  }}
+                  onMouseEnter={!mobile && hasChildren ? (e) => handleParentHover(parentId, e) : undefined}
                   className={`w-full px-4 py-3 text-left hover:bg-gray-50 transition-colors flex items-center justify-between ${
                     isSelected ? 'bg-primary-50 text-primary-600 font-medium' : 'text-gray-900'
                   }`}
@@ -396,7 +407,9 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
                   <span>{parent.name}</span>
                   {hasChildren && (
                     <svg
-                      className="w-4 h-4 text-gray-400"
+                      className={`w-4 h-4 text-gray-400 transition-transform ${
+                        mobile && hoveredParentId === parentId ? 'rotate-90' : ''
+                      }`}
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -411,8 +424,8 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
                   )}
                 </button>
 
-                {/* Sub-dropdown for children - rendered outside scrollable container using portal */}
-                {hasChildren && isHovered && typeof document !== 'undefined' && createPortal(
+                {/* Sub-dropdown for children */}
+                {hasChildren && !mobile && isHovered && typeof document !== 'undefined' && createPortal(
                   <div
                     ref={submenuRef}
                     className="fixed w-64 bg-white border border-gray-200 rounded-lg shadow-xl z-[60] max-h-96 overflow-y-auto"
@@ -443,6 +456,28 @@ const LocationDropdown = ({ locations = [], value, onChange, placeholder = "All 
                     })}
                   </div>,
                   document.body
+                )}
+
+                {hasChildren && mobile && hoveredParentId === parentId && (
+                  <div className="bg-gray-50 border-t border-gray-100">
+                    {(organizedLocations.childrenMap[String(parentId)] || organizedLocations.childrenMap[parentId] || []).map((child) => {
+                      const childId = child.id || child.term_id;
+                      const isChildSelected = value == childId;
+
+                      return (
+                        <button
+                          key={childId}
+                          type="button"
+                          onClick={() => handleSelect(childId)}
+                          className={`w-full px-4 py-3 text-left hover:bg-gray-100 transition-colors ${
+                            isChildSelected ? 'bg-primary-100 text-primary-700 font-medium' : 'text-gray-800'
+                          }`}
+                        >
+                          {child.name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             );

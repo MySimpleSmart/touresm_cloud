@@ -18,6 +18,12 @@ const CustomDatePicker = ({
       <DatePicker
         selected={selected}
         onChange={onChange}
+        onChangeRaw={(event) => event.preventDefault()}
+        onKeyDown={(event) => event.preventDefault()}
+        onFocus={(event) => {
+          event.preventDefault();
+          event.target.blur();
+        }}
         minDate={minDate || new Date()}
         selectsStart={selectsStart}
         selectsEnd={selectsEnd}
@@ -26,7 +32,18 @@ const CustomDatePicker = ({
         filterDate={filterDate}
         placeholderText={placeholder}
         dateFormat="MMM dd, yyyy"
-        className="w-full px-4 py-3 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer"
+        customInput={
+          <button
+            type="button"
+            className={`w-full text-left px-4 py-3 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer bg-white ${
+              selected ? 'text-gray-900' : 'text-gray-400'
+            }`}
+          >
+            {selected
+              ? selected.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+              : placeholder}
+          </button>
+        }
         calendarClassName="airbnb-calendar"
         wrapperClassName="w-full"
         popperClassName="airbnb-popper"

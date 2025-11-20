@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import CustomDatePicker from './DatePicker';
 import LocationDropdown from './LocationDropdown';
 
@@ -6,12 +6,52 @@ const QuickSearch = ({ locations = [], onSearch }) => {
   const [checkInDate, setCheckInDate] = useState(null);
   const [checkOutDate, setCheckOutDate] = useState(null);
   const [guestsInput, setGuestsInput] = useState('1');
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [searchData, setSearchData] = useState({
     location: '',
     checkIn: '',
     checkOut: '',
     guests: 1,
   });
+
+  useEffect(() => {
+    const updateIsMobile = () => {
+      setIsMobile(window.matchMedia('(max-width: 768px)').matches);
+    };
+    updateIsMobile();
+    window.addEventListener('resize', updateIsMobile);
+    return () => window.removeEventListener('resize', updateIsMobile);
+  }, []);
+
+  const formatSummaryDate = (date, fallback = 'Add dates') => {
+    if (!date) return fallback;
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  const locationLabel = useMemo(() => {
+    const fallback = 'Anywhere';
+    const rawValue = searchData.location;
+    if (!rawValue) return fallback;
+
+    if (typeof rawValue === 'object') {
+      return rawValue.name || rawValue.label || rawValue.slug || fallback;
+    }
+
+    const matched = locations.find((loc) => {
+      const locId = loc.id || loc.term_id;
+      if (locId == null) return false;
+      return String(locId) === String(rawValue);
+    });
+    return matched?.name || matched?.slug || fallback;
+  }, [searchData.location, locations]);
+
+  const checkInLabel = formatSummaryDate(checkInDate);
+  const checkOutLabel = formatSummaryDate(checkOutDate);
+  const guestsLabel = `${searchData.guests || 1} guest${(searchData.guests || 1) > 1 ? 's' : ''}`;
 
   const handleDateChange = (field, date) => {
     if (field === 'checkIn') {
@@ -51,6 +91,7 @@ const QuickSearch = ({ locations = [], onSearch }) => {
     if (onSearch) {
       onSearch(searchData);
     }
+    setMobileOpen(false);
   };
 
   const clearCheckIn = () => {
@@ -76,10 +117,66 @@ const QuickSearch = ({ locations = [], onSearch }) => {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Find Your Perfect Stay</h2>
-      <form onSubmit={handleSubmit}>
-        <div className="flex flex-col md:flex-row gap-4 items-end">
+    <div className="bg-white rounded-2xl p-4 sm:p-6 mb-8 shadow-sm border border-gray-100">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Find Your Perfect Stay</h2>
+        <button
+          type="button"
+          className="md:hidden text-sm font-semibold text-primary-600"
+          onClick={() => setMobileOpen((prev) => !prev)}
+          aria-expanded={mobileOpen}
+        >
+          {mobileOpen ? 'Hide' : 'Details'}
+        </button>
+      </div>
+
+      {isMobile && (
+        <button
+          type="button"
+          className="w-full md:hidden rounded-2xl border-2 border-blue-200 bg-white px-4 py-3 shadow-sm flex items-center justify-between text-left"
+          onClick={() => setMobileOpen((prev) => !prev)}
+          aria-expanded={mobileOpen}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-50 text-primary-600">
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z"
+                />
+              </svg>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Start your search</p>
+              <p className="text-xs text-gray-500">
+                {locationLabel} · {checkInLabel} → {checkOutLabel} · {guestsLabel}
+              </p>
+            </div>
+          </div>
+          <svg
+            className={`w-5 h-5 text-gray-400 transition-transform ${mobileOpen ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      )}
+
+      <form onSubmit={handleSubmit} className="mt-4">
+        <div
+          className={`flex flex-col md:flex-row gap-4 items-end transition-all duration-200 ${
+            !isMobile || mobileOpen ? 'mt-4' : 'hidden md:flex'
+          }`}
+        >
           {/* Location - 40% */}
           <div className="w-full md:w-[40%]">
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -90,6 +187,7 @@ const QuickSearch = ({ locations = [], onSearch }) => {
               value={searchData.location}
               onChange={(value) => handleChange('location', value)}
               placeholder="All Locations"
+              mobile={isMobile}
             />
           </div>
 
@@ -192,8 +290,7 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             </div>
           </div>
 
-          {/* Search Button */}
-          <div className="w-full md:w-auto flex gap-2">
+          <div className="w-full md:w-auto flex flex-col sm:flex-row gap-2 md:items-center">
             <button
               type="button"
               onClick={clearAll}
@@ -203,7 +300,7 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             </button>
             <button
               type="submit"
-              className="w-full md:w-auto px-8 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors shadow-md hover:shadow-lg whitespace-nowrap"
+              className="w-full md:w-auto px-8 py-3 bg-primary-600 text-white rounded-lg font-semibold hover:bg-primary-700 transition-colors whitespace-nowrap"
             >
               Search
             </button>
