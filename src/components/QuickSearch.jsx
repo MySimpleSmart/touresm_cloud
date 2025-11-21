@@ -24,6 +24,11 @@ const QuickSearch = ({ locations = [], onSearch }) => {
     return () => window.removeEventListener('resize', updateIsMobile);
   }, []);
 
+  // Sync guestsInput when searchData.guests changes externally (e.g., from clearAll)
+  useEffect(() => {
+    setGuestsInput(String(searchData.guests || 1));
+  }, [searchData.guests]);
+
   const formatSummaryDate = (date, fallback = 'Add dates') => {
     if (!date) return fallback;
     return date.toLocaleDateString('en-US', {
@@ -56,20 +61,19 @@ const QuickSearch = ({ locations = [], onSearch }) => {
   const handleDateChange = (field, date) => {
     if (field === 'checkIn') {
       setCheckInDate(date);
-      setSearchData({ 
-        ...searchData, 
+      setSearchData({
+        ...searchData,
         checkIn: date ? date.toISOString().split('T')[0] : '',
-        checkOut: checkOutDate && date && checkOutDate < date ? '' : searchData.checkOut
+        checkOut: checkOutDate && date && checkOutDate < date ? '' : searchData.checkOut,
       });
-      // Reset check-out if it's before new check-in
       if (checkOutDate && date && checkOutDate < date) {
         setCheckOutDate(null);
       }
     } else {
       setCheckOutDate(date);
-      setSearchData({ 
-        ...searchData, 
-        checkOut: date ? date.toISOString().split('T')[0] : '' 
+      setSearchData({
+        ...searchData,
+        checkOut: date ? date.toISOString().split('T')[0] : '',
       });
     }
   };
@@ -79,7 +83,7 @@ const QuickSearch = ({ locations = [], onSearch }) => {
       setSearchData({ ...searchData, [field]: value });
       setGuestsInput(String(value));
     } else {
-    setSearchData({ ...searchData, [field]: value });
+      setSearchData({ ...searchData, [field]: value });
     }
   };
 
@@ -89,7 +93,12 @@ const QuickSearch = ({ locations = [], onSearch }) => {
       return;
     }
     if (onSearch) {
-      onSearch(searchData);
+      // Ensure guests is always included with a valid number
+      const finalSearchData = {
+        ...searchData,
+        guests: searchData.guests && Number(searchData.guests) >= 1 ? Number(searchData.guests) : 1,
+      };
+      onSearch(finalSearchData);
     }
     setMobileOpen(false);
   };
@@ -177,7 +186,6 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             !isMobile || mobileOpen ? 'mt-4' : 'hidden md:flex'
           }`}
         >
-          {/* Location - 40% */}
           <div className="w-full md:w-[40%]">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Location
@@ -191,7 +199,6 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             />
           </div>
 
-          {/* Check In - 25% */}
           <div className="w-full md:w-[25%]">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Check In
@@ -207,7 +214,6 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             />
           </div>
 
-          {/* Check Out - 25% */}
           <div className="w-full md:w-[25%]">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Check Out
@@ -224,7 +230,6 @@ const QuickSearch = ({ locations = [], onSearch }) => {
             />
           </div>
 
-          {/* Guest Number - 10% */}
           <div className="w-full md:w-[10%]">
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Guests
@@ -233,42 +238,47 @@ const QuickSearch = ({ locations = [], onSearch }) => {
               <button
                 type="button"
                 onClick={() => {
-                  const newValue = Math.max(searchData.guests - 1, 1);
-                  setSearchData({ ...searchData, guests: newValue });
-                  setGuestsInput(String(newValue));
+                  setSearchData((prev) => {
+                    const newValue = Math.max(prev.guests - 1, 1);
+                    setGuestsInput(String(newValue));
+                    return { ...prev, guests: newValue };
+                  });
                 }}
                 className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-sm font-medium text-gray-600 transition hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-300"
                 aria-label="Decrease guests"
               >
                 −
               </button>
-            <input
-              type="number"
-              min="1"
-              max="20"
+              <input
+                type="number"
+                min="1"
+                max="20"
                 value={guestsInput}
                 onChange={(e) => {
                   const inputValue = e.target.value;
                   setGuestsInput(inputValue);
                   if (inputValue === '') {
+                    // Allow empty temporarily for better UX
                     return;
                   }
                   const numValue = parseInt(inputValue, 10);
-                  if (!isNaN(numValue) && numValue >= 1 && numValue <= 20) {
-                    setSearchData({ ...searchData, guests: numValue });
+                  if (!Number.isNaN(numValue) && numValue >= 1 && numValue <= 20) {
+                    setSearchData((prev) => ({ ...prev, guests: numValue }));
                   }
                 }}
                 onBlur={(e) => {
-                  const inputValue = e.target.value;
+                  const inputValue = e.target.value.trim();
                   const numValue = parseInt(inputValue, 10);
-                  if (inputValue === '' || isNaN(numValue) || numValue < 1) {
+                  if (inputValue === '' || Number.isNaN(numValue) || numValue < 1) {
                     setGuestsInput('1');
-                    setSearchData({ ...searchData, guests: 1 });
+                    setSearchData((prev) => ({ ...prev, guests: 1 }));
                   } else if (numValue > 20) {
                     setGuestsInput('20');
-                    setSearchData({ ...searchData, guests: 20 });
+                    setSearchData((prev) => ({ ...prev, guests: 20 }));
                   } else {
-                    setGuestsInput(String(numValue));
+                    const finalValue = Math.max(1, Math.min(20, numValue));
+                    setGuestsInput(String(finalValue));
+                    setSearchData((prev) => ({ ...prev, guests: finalValue }));
                   }
                 }}
                 className="flex-1 text-center text-base font-medium text-gray-900 border-0 focus:ring-0 focus:outline-none p-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -277,9 +287,11 @@ const QuickSearch = ({ locations = [], onSearch }) => {
               <button
                 type="button"
                 onClick={() => {
-                  const newValue = Math.min(searchData.guests + 1, 20);
-                  setSearchData({ ...searchData, guests: newValue });
-                  setGuestsInput(String(newValue));
+                  setSearchData((prev) => {
+                    const newValue = Math.min(prev.guests + 1, 20);
+                    setGuestsInput(String(newValue));
+                    return { ...prev, guests: newValue };
+                  });
                 }}
                 disabled={searchData.guests >= 20}
                 className="flex h-6 w-6 items-center justify-center rounded border border-gray-300 text-sm font-medium text-gray-600 transition hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-300 disabled:cursor-not-allowed disabled:opacity-50"

@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import ListingList from './components/ListingList';
 import ListingDetail from './components/ListingDetail';
+import BookingConfirmation from './components/BookingConfirmation';
 import Header from './components/Header';
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
           <Routes>
             <Route path="/" element={<ListingList />} />
             <Route path="/listing/:id" element={<ListingDetail />} />
+            <Route path="/booking/:id/confirm" element={<BookingConfirmation />} />
             <Route path="*" element={
               <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="text-center py-12">

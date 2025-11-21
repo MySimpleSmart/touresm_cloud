@@ -6,6 +6,7 @@ import {
   getAmenities,
 } from '../services/api';
 import ListingCard from './ListingCard';
+import QuickSearch from './QuickSearch';
 import {
   buildLocationLookup,
   matchesLocationFilter,
@@ -120,6 +121,7 @@ const AdvancedSearch = ({
       locations: quickFilters.locations || [],
       checkIn: quickFilters.checkIn || '',
       checkOut: quickFilters.checkOut || '',
+      minGuests: quickFilters.minGuests || '',
     }));
   }, [quickFilters]);
 
@@ -214,9 +216,13 @@ const AdvancedSearch = ({
       const guests = getListingNumericValue(listing, [
         'guest_max_number',
         'guests',
+        'listing_guest_max_number',
       ]);
-      if (filters.minGuests && (guests === null || guests < Number(filters.minGuests))) {
-        return false;
+      if (filters.minGuests && filters.minGuests !== '') {
+        const minGuestsNum = Number(filters.minGuests);
+        if (guests === null || guests < minGuestsNum) {
+          return false;
+        }
       }
 
       if (!matchesAmenitiesFilter(listing, filters.amenities)) {
@@ -445,6 +451,19 @@ const AdvancedSearch = ({
       return {
         ...prev,
         locations: Array.from(next),
+      };
+    });
+  };
+
+  const handleQuickSearchFilters = (data) => {
+    setFilters((prev) => {
+      const guestsValue = data.guests != null ? Number(data.guests) : null;
+      return {
+        ...prev,
+        locations: data.location ? [String(data.location)] : [],
+        checkIn: data.checkIn || '',
+        checkOut: data.checkOut || '',
+        minGuests: guestsValue && guestsValue >= 1 ? String(guestsValue) : '',
       };
     });
   };
@@ -850,6 +869,12 @@ const AdvancedSearch = ({
           : 'max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-10'
       }`}
     >
+      {!embedded && (
+        <div className="mb-8">
+          <QuickSearch locations={locations} onSearch={handleQuickSearchFilters} />
+        </div>
+      )}
+
       <div className="pb-8 space-y-2">
         <div className="flex items-center justify-between">
           <div>

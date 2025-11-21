@@ -112,10 +112,12 @@ const ListingList = () => {
       checkOut: searchData.checkOut || '',
     });
 
+    const guestsValue = searchData.guests != null ? Number(searchData.guests) : null;
     setQuickFilters({
       locations: searchData.location ? [String(searchData.location)] : [],
       checkIn: searchData.checkIn || '',
       checkOut: searchData.checkOut || '',
+      minGuests: guestsValue && guestsValue >= 1 ? String(guestsValue) : '',
     });
   };
 

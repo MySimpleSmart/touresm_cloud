@@ -652,9 +652,14 @@ const ListingCard = ({ listing, taxonomies = {} }) => {
 
         <div className="mt-auto pt-4 border-t border-gray-200 flex items-center justify-between gap-3">
             {listing.listing_price ? (
-              <p className="text-2xl font-bold text-primary-600">
-                {formatPrice(listing.listing_price)}
-              </p>
+              <div className="flex flex-col leading-tight">
+                <p className="text-2xl font-bold text-primary-600">
+                  {formatPrice(listing.listing_price)}
+                </p>
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  per night
+                </span>
+              </div>
             ) : (
               <p className="text-gray-500">Price on request</p>
             )}
