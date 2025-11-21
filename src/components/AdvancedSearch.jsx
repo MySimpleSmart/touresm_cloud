@@ -7,6 +7,8 @@ import {
 } from '../services/api';
 import ListingCard from './ListingCard';
 import QuickSearch from './QuickSearch';
+import CustomDatePicker from './DatePicker';
+import LocationDropdown from './LocationDropdown';
 import {
   buildLocationLookup,
   matchesLocationFilter,
@@ -56,26 +58,26 @@ const AdvancedSearch = ({
   const [showStickyFilter, setShowStickyFilter] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [listingsData, categoriesData, locationsData, amenitiesData] =
-        await Promise.all([
-          getListings({ per_page: 100 }),
-          getCategories(),
-          getLocations(),
-          getAmenities(),
-        ]);
-      setListings(listingsData);
-      setCategories(categoriesData);
-      setLocations(locationsData);
-      setAmenities(amenitiesData);
-    } catch (error) {
-      console.error('Error loading advanced search data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [listingsData, categoriesData, locationsData, amenitiesData] =
+          await Promise.all([
+            getListings({ per_page: 100 }),
+            getCategories(),
+            getLocations(),
+            getAmenities(),
+          ]);
+        setListings(listingsData);
+        setCategories(categoriesData);
+        setLocations(locationsData);
+        setAmenities(amenitiesData);
+      } catch (error) {
+        console.error('Error loading advanced search data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
   useEffect(() => {
     if (embedded && listingsSeed) {
@@ -251,7 +253,7 @@ const AdvancedSearch = ({
       if (filters.minGuests && filters.minGuests !== '') {
         const minGuestsNum = Number(filters.minGuests);
         if (guests === null || guests < minGuestsNum) {
-          return false;
+        return false;
         }
       }
 
@@ -353,28 +355,109 @@ const AdvancedSearch = ({
     </div>
   );
 
+  const [locationSearchQuery, setLocationSearchQuery] = useState('');
+  const [expandedLocationParents, setExpandedLocationParents] = useState(new Set());
+
+  const filteredGroupedLocations = useMemo(() => {
+    if (!locationSearchQuery.trim()) {
+      return groupedLocations;
+    }
+    
+    const query = locationSearchQuery.toLowerCase();
+    const filteredParents = [];
+    const filteredChildrenMap = {};
+    
+    groupedLocations.parents.forEach((parent) => {
+      const parentId = String(parent.id || parent.term_id);
+      const children = groupedLocations.childrenMap[parentId] || [];
+      const parentMatches = parent.name.toLowerCase().includes(query);
+      const matchingChildren = children.filter(child => 
+        child.name.toLowerCase().includes(query)
+      );
+      
+      if (parentMatches || matchingChildren.length > 0) {
+        filteredParents.push(parent);
+        if (matchingChildren.length > 0) {
+          filteredChildrenMap[parentId] = matchingChildren;
+        } else if (parentMatches) {
+          filteredChildrenMap[parentId] = children;
+        }
+      }
+    });
+    
+    return { parents: filteredParents, childrenMap: filteredChildrenMap };
+  }, [groupedLocations, locationSearchQuery]);
+
+  const toggleLocationParent = (parentId) => {
+    setExpandedLocationParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) {
+        next.delete(parentId);
+      } else {
+        next.add(parentId);
+      }
+      return next;
+    });
+  };
+
   const renderLocationFilters = () => (
     <div>
       <h4 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">
         Locations
       </h4>
-      <div className="space-y-3 max-h-72 overflow-y-auto pr-2">
-        {groupedLocations.parents.map((parent) => {
+      <div className="mb-3">
+        <input
+          type="text"
+          value={locationSearchQuery}
+          onChange={(e) => setLocationSearchQuery(e.target.value)}
+          placeholder="Search locations..."
+          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+        />
+      </div>
+      <div className="space-y-2 max-h-72 overflow-y-auto pr-2">
+        {filteredGroupedLocations.parents.map((parent) => {
           const parentId = String(parent.id || parent.term_id);
-          const children = groupedLocations.childrenMap[parentId] || [];
+          const children = filteredGroupedLocations.childrenMap[parentId] || [];
+          const hasChildren = children.length > 0;
+          const isExpanded = expandedLocationParents.has(parentId);
+          
           return (
             <div key={parentId}>
-              <label className="flex items-center space-x-3 text-gray-800 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  checked={filters.locations.includes(parentId)}
-                  onChange={() => handleLocationToggle(parentId)}
-                  className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span>{parent.name}</span>
-              </label>
-              {children.length > 0 && (
-                <div className="ml-6 mt-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center space-x-3 text-gray-800 text-sm font-medium flex-1">
+                  <input
+                    type="checkbox"
+                    checked={filters.locations.includes(parentId)}
+                    onChange={() => handleLocationToggle(parentId)}
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span>{parent.name}</span>
+                </label>
+                {hasChildren && (
+                  <button
+                    type="button"
+                    onClick={() => toggleLocationParent(parentId)}
+                    className="ml-2 p-1 rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                    aria-label={isExpanded ? "Hide sub-locations" : "Show sub-locations"}
+                  >
+                    <svg
+                      className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {hasChildren && isExpanded && (
+                <div className="ml-7 mt-2 space-y-2 border-l border-gray-200 pl-3">
                   {children.map((child) => {
                     const childId = String(child.id || child.term_id);
                     return (
@@ -581,28 +664,109 @@ const AdvancedSearch = ({
     });
   };
 
+  const [amenitySearchQuery, setAmenitySearchQuery] = useState('');
+  const [expandedAmenityParents, setExpandedAmenityParents] = useState(new Set());
+
+  const filteredGroupedAmenities = useMemo(() => {
+    if (!amenitySearchQuery.trim()) {
+      return groupedAmenities;
+    }
+
+    const query = amenitySearchQuery.toLowerCase();
+    const filteredParents = [];
+    const filteredChildrenMap = {};
+
+    groupedAmenities.parents.forEach((parent) => {
+      const parentId = String(parent.id || parent.term_id);
+      const children = groupedAmenities.childrenMap[parentId] || [];
+      const parentMatches = parent.name.toLowerCase().includes(query);
+      const matchingChildren = children.filter((child) =>
+        child.name.toLowerCase().includes(query)
+      );
+
+      if (parentMatches || matchingChildren.length > 0) {
+        filteredParents.push(parent);
+        if (matchingChildren.length > 0) {
+          filteredChildrenMap[parentId] = matchingChildren;
+        } else if (parentMatches) {
+          filteredChildrenMap[parentId] = children;
+        }
+      }
+    });
+
+    return { parents: filteredParents, childrenMap: filteredChildrenMap };
+  }, [groupedAmenities, amenitySearchQuery]);
+
+  const toggleAmenityParent = (parentId) => {
+    setExpandedAmenityParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parentId)) {
+        next.delete(parentId);
+      } else {
+        next.add(parentId);
+      }
+      return next;
+    });
+  };
+
   const renderAmenityFilters = () => (
     <div>
       <h4 className="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">
         Amenities
       </h4>
-      <div className="space-y-3 max-h-60 overflow-y-auto pr-2">
-        {groupedAmenities.parents.map((parent) => {
+      <div className="mb-3">
+        <input
+          type="text"
+          value={amenitySearchQuery}
+          onChange={(e) => setAmenitySearchQuery(e.target.value)}
+          placeholder="Search amenities..."
+          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
+        />
+      </div>
+      <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+        {filteredGroupedAmenities.parents.map((parent) => {
           const parentId = String(parent.id || parent.term_id);
-          const children = groupedAmenities.childrenMap[parentId] || [];
+          const children = filteredGroupedAmenities.childrenMap[parentId] || [];
+          const hasChildren = children.length > 0;
+          const isExpanded = expandedAmenityParents.has(parentId) || !!amenitySearchQuery.trim();
+
           return (
             <div key={parentId}>
-              <label className="flex items-center space-x-3 text-gray-800 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  checked={filters.amenities.includes(parentId)}
-                  onChange={() => handleAmenityToggle(parentId)}
-                  className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                />
-                <span>{parent.name}</span>
-              </label>
-              {children.length > 0 && (
-                <div className="ml-6 mt-2 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center space-x-3 text-gray-800 text-sm font-medium flex-1">
+                  <input
+                    type="checkbox"
+                    checked={filters.amenities.includes(parentId)}
+                    onChange={() => handleAmenityToggle(parentId)}
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span>{parent.name}</span>
+                </label>
+                {hasChildren && (
+                  <button
+                    type="button"
+                    onClick={() => toggleAmenityParent(parentId)}
+                    className="ml-2 p-1 rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                    aria-label={isExpanded ? 'Hide sub-amenities' : 'Show sub-amenities'}
+                  >
+                    <svg
+                      className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 5l7 7-7 7"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+              {hasChildren && isExpanded && (
+                <div className="ml-7 mt-2 space-y-2 border-l border-gray-200 pl-3">
                   {children.map((child) => {
                     const childId = String(child.id || child.term_id);
                     return (
@@ -645,6 +809,39 @@ const AdvancedSearch = ({
       </div>
 
       {renderCategoryFilters()}
+
+      <div>
+        <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wide mb-2">
+          Date Range
+        </label>
+        <div className="space-y-4">
+          <CustomDatePicker
+            selected={filters.checkIn ? new Date(filters.checkIn) : null}
+            onChange={(date) => {
+              handleInputChange('checkIn', date ? date.toISOString().split('T')[0] : '');
+              if (filters.checkOut && date && new Date(filters.checkOut) < date) {
+                handleInputChange('checkOut', '');
+              }
+            }}
+            onClear={() => handleInputChange('checkIn', '')}
+            placeholder="Check-in"
+            minDate={new Date()}
+            selectsStart
+            startDate={filters.checkIn ? new Date(filters.checkIn) : null}
+            endDate={filters.checkOut ? new Date(filters.checkOut) : null}
+          />
+          <CustomDatePicker
+            selected={filters.checkOut ? new Date(filters.checkOut) : null}
+            onChange={(date) => handleInputChange('checkOut', date ? date.toISOString().split('T')[0] : '')}
+            onClear={() => handleInputChange('checkOut', '')}
+            placeholder="Check-out"
+            minDate={filters.checkIn ? new Date(filters.checkIn) : new Date()}
+            selectsEnd
+            startDate={filters.checkIn ? new Date(filters.checkIn) : null}
+            endDate={filters.checkOut ? new Date(filters.checkOut) : null}
+          />
+        </div>
+      </div>
 
       {renderLocationFilters()}
 
@@ -719,27 +916,6 @@ const AdvancedSearch = ({
               />
             </div>
           </div>
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-semibold text-gray-900 uppercase tracking-wide mb-2">
-          Date Range
-        </label>
-        <div className="grid grid-cols-2 gap-4">
-          <input
-            type="date"
-            value={filters.checkIn}
-            onChange={(e) => handleInputChange('checkIn', e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-          />
-          <input
-            type="date"
-            value={filters.checkOut}
-            min={filters.checkIn || undefined}
-            onChange={(e) => handleInputChange('checkOut', e.target.value)}
-            className="rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-100"
-          />
         </div>
       </div>
 
@@ -978,14 +1154,14 @@ const AdvancedSearch = ({
               Clear
             </button>
           )}
-        </div>
+          </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-8">
         {!isMobile && (
           <aside className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 h-fit">
             {renderFilterForm()}
-          </aside>
+        </aside>
         )}
 
         <section className="space-y-6">
