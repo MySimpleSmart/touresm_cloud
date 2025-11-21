@@ -84,6 +84,7 @@
   z-index: 50;
 }
 
+/* Availability Calendar */
 .price-range-slider input[type='range'] {
   @apply absolute inset-0 w-full h-10 bg-transparent;
   -webkit-appearance: none;

@@ -1,8 +1,32 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { getListing, getAmenities, getCategories, getLocations, getSizes, getMedia, getMediaByParent } from '../services/api';
+import { getListing, getListings, getAmenities, getCategories, getLocations, getSizes, getMedia, getMediaByParent } from '../services/api';
 import ImageGallery from './ImageGallery';
 import CustomDatePicker from './DatePicker';
+
+const REVIEW_TEMPLATES = [
+  {
+    name: 'Naraa',
+    location: 'Ulaanbaatar, Mongolia',
+    stay: 'Stayed March 2025',
+    rating: 5,
+    comment: 'Everything was spotless and exactly as described. {listing} felt even cozier in person and the host was incredibly responsive.',
+  },
+  {
+    name: 'Bat-Erdene',
+    location: 'Seoul, South Korea',
+    stay: 'Stayed January 2025',
+    rating: 4,
+    comment: 'Great location with beautiful views. The availability calendar matched reality—we booked confidently and the stay went smoothly.',
+  },
+  {
+    name: 'Ariuka',
+    location: 'Tokyo, Japan',
+    stay: 'Stayed November 2024',
+    rating: 5,
+    comment: 'Loved the interior details and private outdoor space. Would recommend {listing} to anyone visiting the area.',
+  },
+];
 
 const ListingDetail = () => {
   const { id } = useParams();
@@ -21,6 +45,8 @@ const ListingDetail = () => {
   const [dateError, setDateError] = useState('');
   const [isMobile, setIsMobile] = useState(false);
   const [mobileBookingModalOpen, setMobileBookingModalOpen] = useState(false);
+  const [relatedListings, setRelatedListings] = useState([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
 
   const blockedDateSet = useMemo(() => {
     if (!listing) return new Set();
@@ -179,9 +205,33 @@ const ListingDetail = () => {
     setEndDate(date);
   };
 
-  useEffect(() => {
-    loadListing();
-  }, [id]);
+  const loadRelatedListings = useCallback(
+    async (categoryId, currentListingId) => {
+      if (!categoryId) {
+        setRelatedListings([]);
+        return;
+      }
+      setRelatedLoading(true);
+      try {
+        const data = await getListings({
+          per_page: 6,
+          listing_category: categoryId,
+          exclude: currentListingId,
+        });
+        const normalized = Array.isArray(data) ? data : [];
+        const filtered = normalized.filter(
+          (item) => Number(item?.id) !== Number(currentListingId)
+        );
+        setRelatedListings(filtered.slice(0, 4));
+      } catch (error) {
+        console.error('Error loading related listings:', error);
+        setRelatedListings([]);
+      } finally {
+        setRelatedLoading(false);
+      }
+    },
+    []
+  );
 
   const loadListing = async () => {
     setLoading(true);
@@ -255,13 +305,18 @@ const ListingDetail = () => {
         }
       }
 
-      setListing({
+      const normalizedListing = {
         ...listingData,
         listing_gallery:
           resolvedGallery && resolvedGallery.length > 0
             ? resolvedGallery
             : listingData.listing_gallery,
-      });
+      };
+
+      setListing(normalizedListing);
+
+      const primaryCategoryId = extractTermId(listingData.listing_category);
+      loadRelatedListings(primaryCategoryId, listingData.id);
       
       // Fetch taxonomies separately with error handling so one failure doesn't break everything
       try {
@@ -985,7 +1040,198 @@ const ListingDetail = () => {
     return stringValue.trim() || null;
   };
 
+  const extractTermId = (value) => {
+    if (!value) return null;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = parseInt(value, 10);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    if (Array.isArray(value)) {
+      if (value.length === 0) return null;
+      return extractTermId(value[0]);
+    }
+    if (typeof value === 'object') {
+      return (
+        value.id ||
+        value.term_id ||
+        value.ID ||
+        value.term ||
+        extractTermId(value.value) ||
+        null
+      );
+    }
+    return null;
+  };
+
+  const getListingPrimaryImage = (item) => {
+    if (!item) return null;
+    const gallery = item.listing_gallery;
+    const extractFromEntry = (entry) => {
+      if (!entry) return null;
+      if (typeof entry === 'string') return entry;
+      if (typeof entry === 'object') {
+        return (
+          entry.url ||
+          entry.source_url ||
+          entry.guid ||
+          entry.rendered ||
+          entry.src ||
+          null
+        );
+      }
+      return null;
+    };
+
+    if (Array.isArray(gallery) && gallery.length > 0) {
+      const image = extractFromEntry(gallery[0]);
+      if (image) return image;
+    }
+
+    if (item.featured_media?.source_url) return item.featured_media.source_url;
+    if (typeof item.listing_featured_image === 'string') return item.listing_featured_image;
+
+    return null;
+  };
+
+  useEffect(() => {
+    loadListing();
+  }, [id]);
+
   const maxGuests = Math.max(parseInt(listing?.guest_max_number, 10) || 10, 1);
+  const fakeReviews = useMemo(
+    () =>
+      REVIEW_TEMPLATES.map((review, index) => ({
+        ...review,
+        id: index,
+        comment: review.comment.replace('{listing}', listing?.listing_name || 'this home'),
+      })),
+    [listing?.listing_name]
+  );
+
+  const averageFakeRating = useMemo(() => {
+    if (!fakeReviews.length) return null;
+    const total = fakeReviews.reduce((sum, review) => sum + (review.rating || 0), 0);
+    return (total / fakeReviews.length).toFixed(1);
+  }, [fakeReviews]);
+
+  const featuredCategoryId = useMemo(
+    () => extractTermId(listing?.listing_category),
+    [listing?.listing_category]
+  );
+
+  const featuredCategory = useMemo(() => {
+    if (!featuredCategoryId || categories.length === 0) return null;
+    return (
+      categories.find((cat) => {
+        const catId = cat.id || cat.term_id;
+        return Number(catId) === Number(featuredCategoryId);
+      }) || null
+    );
+  }, [featuredCategoryId, categories]);
+
+  const featuredCategoryName = useMemo(() => {
+    if (featuredCategory?.name) return featuredCategory.name;
+    return getTaxonomyValue(listing?.listing_category, 'categories');
+  }, [featuredCategory, listing?.listing_category]);
+
+  const featuredCategoryDescription = featuredCategory?.description;
+
+  const renderRelatedListingsSection = () => {
+    if (!(relatedLoading || relatedListings.length > 0)) {
+      return null;
+    }
+
+    return (
+      <div className="mt-12" id="related-listings-section">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary-600">
+              More stays
+            </p>
+            <h2 className="text-2xl font-semibold text-gray-900">
+              Other homes in {featuredCategoryName || 'Touresm'}
+            </h2>
+            <p className="text-sm text-gray-500">
+              Because you viewed {listing?.listing_name || 'this listing'}
+            </p>
+          </div>
+          {featuredCategoryId && (
+            <Link
+              to={`/?category=${featuredCategoryId}`}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-primary-600 hover:text-primary-700"
+            >
+              View category
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          )}
+        </div>
+
+        {relatedLoading ? (
+          <div className="flex h-32 items-center justify-center">
+            <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-primary-600" />
+          </div>
+        ) : relatedListings.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-8 text-center text-gray-500">
+            No other listings found in this category yet.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+            {relatedListings.map((item) => {
+              const image = getListingPrimaryImage(item);
+              const price = item.listing_price || item.meta?.listing_price;
+              return (
+                <Link
+                  to={`/listing/${item.id}`}
+                  key={item.id}
+                  className="group overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                >
+                  <div className="aspect-[4/3] w-full overflow-hidden bg-gray-100">
+                    {image ? (
+                      <img
+                        src={image}
+                        alt={item.listing_name || 'Listing image'}
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-gray-400">
+                        No image
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-5">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-lg font-semibold text-gray-900 truncate">
+                        {item.listing_name || 'Listing'}
+                      </h3>
+                      {price && (
+                        <span className="text-sm font-semibold text-primary-600">
+                          ₮{Number(price).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                    {item.listing_location && (
+                      <p className="mt-1 text-sm text-gray-500">
+                        {getTaxonomyValue(item.listing_location, 'locations')}
+                      </p>
+                    )}
+                    <p className="mt-3 text-sm text-gray-600 line-clamp-2">
+                      {item.listing_excerpt ||
+                        item.listing_description ||
+                        'Tap to view more details about this stay.'}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   useEffect(() => {
     setGuestCount((prev) => {
@@ -1119,8 +1365,58 @@ const ListingDetail = () => {
             <div className="flex-1">
           {/* Header */}
           <div className="mb-6">
-                <div className="mb-4 flex items-start justify-between">
-              <div className="flex-1">
+                <div className="mb-4 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => console.info('Wishlist demo action')}
+                      className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-700 shadow-sm transition hover:border-gray-300 hover:text-gray-900"
+                      title="Save to wishlist (demo)"
+                    >
+                      <svg
+                        className="h-3.5 w-3.5 text-primary-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 6.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                        />
+                      </svg>
+                      Wishlist
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => console.info('Share demo action')}
+                      className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-wide text-gray-700 shadow-sm transition hover:border-gray-300 hover:text-gray-900"
+                      title="Share listing (demo)"
+                    >
+                      <svg
+                        className="h-3.5 w-3.5 text-primary-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M15 8a3 3 0 10-3-3 3 3 0 003 3zm-6 8a3 3 0 10-3 3 3 3 0 003-3zm9 0a3 3 0 10-3 3 3 3 0 003-3z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M8.59 13.51l6.83 3.98M15.41 6.51L8.59 10.49"
+                        />
+                      </svg>
+                      Share
+                    </button>
+                  </div>
+              <div className="flex-1 min-w-0">
                     <h1 className="mb-2 text-4xl font-bold text-gray-900">
                   {listing.listing_name || 'Unnamed Listing'}
                 </h1>
@@ -1348,6 +1644,40 @@ const ListingDetail = () => {
             </div>
           </div>
 
+          {/* Featured Category Section */}
+          {featuredCategoryName && (
+            <div className="mb-10 rounded-3xl border border-primary-100 bg-white/90 p-5 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-600">
+                  <svg
+                    className="h-6 w-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.285 3.95a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.285 3.95c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.785.57-1.84-.197-1.54-1.118l1.285-3.95a1 1 0 00-.364-1.118L3.064 9.377c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.285-3.95z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary-600">
+                    Featured stay
+                  </p>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    Guest favourite in {featuredCategoryName}
+                  </h2>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-gray-600">
+                Hand-picked by Touresm as a standout stay with consistently high guest feedback.
+              </p>
+            </div>
+          )}
+
           {/* Description */}
           {listing.listing_description && (
             <div className="mb-8">
@@ -1444,6 +1774,69 @@ const ListingDetail = () => {
               </div>
             </div>
           )}
+
+          {/* Reviews */}
+          {fakeReviews.length > 0 && (
+            <div className="mb-8">
+              <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold text-gray-900">Guest impressions (demo)</h2>
+                  {averageFakeRating && (
+                    <p className="text-sm text-gray-500">
+                      Average rating {averageFakeRating} · {fakeReviews.length} {fakeReviews.length === 1 ? 'review' : 'reviews'}
+                    </p>
+                  )}
+                </div>
+                <div className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-3 py-1 text-sm font-semibold text-primary-700">
+                  <svg
+                    className="h-4 w-4"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.197-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                  Verified demo
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                {fakeReviews.map((review) => (
+                  <div key={review.id} className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+                    <div className="mb-4 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 text-lg font-semibold text-primary-700">
+                          {review.name
+                            .split(' ')
+                            .map((part) => part[0])
+                            .join('')
+                            .toUpperCase()
+                            .slice(0, 2)}
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold text-gray-900">{review.name}</p>
+                          <p className="text-sm text-gray-500">{review.location}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 text-primary-600">
+                        {Array.from({ length: 5 }).map((_, index) => (
+                          <svg
+                            key={index}
+                            className={`h-5 w-5 ${index < review.rating ? 'text-primary-500' : 'text-gray-300'}`}
+                            fill="currentColor"
+                            viewBox="0 0 20 20"
+                          >
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.785.57-1.84-.197-1.54-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                          </svg>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="mb-2 text-sm font-medium text-gray-500">{review.stay}</p>
+                    <p className="text-base leading-relaxed text-gray-700">{review.comment}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
             </div>
 
             <aside className="w-full lg:w-96">
@@ -1628,6 +2021,9 @@ const ListingDetail = () => {
               </div>
             </aside>
           </div>
+
+          {!isMobile && renderRelatedListingsSection()}
+          {isMobile && renderRelatedListingsSection()}
         </div>
       </div>
 
@@ -1887,6 +2283,7 @@ const ListingDetail = () => {
               </p>
             </div>
           </div>
+
         </div>
       )}
     </div>
