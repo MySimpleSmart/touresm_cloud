@@ -3,13 +3,14 @@ import ListingList from './components/ListingList';
 import ListingDetail from './components/ListingDetail';
 import BookingConfirmation from './components/BookingConfirmation';
 import Header from './components/Header';
+import BottomNavigation from './components/BottomNavigation';
 
 function App() {
   return (
     <Router>
       <div className="min-h-screen bg-gray-50">
         <Header />
-        <main>
+        <main className="pb-16 md:pb-0">
           <Routes>
             <Route path="/" element={<ListingList />} />
             <Route path="/listing/:id" element={<ListingDetail />} />
@@ -30,6 +31,7 @@ function App() {
             } />
           </Routes>
         </main>
+        <BottomNavigation />
       </div>
     </Router>
   );

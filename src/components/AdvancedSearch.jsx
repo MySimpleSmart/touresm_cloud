@@ -53,29 +53,31 @@ const AdvancedSearch = ({
   });
   const [isMobile, setIsMobile] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [showStickyFilter, setShowStickyFilter] = useState(false);
+  const [lastScrollY, setLastScrollY] = useState(0);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [listingsData, categoriesData, locationsData, amenitiesData] =
+        await Promise.all([
+          getListings({ per_page: 100 }),
+          getCategories(),
+          getLocations(),
+          getAmenities(),
+        ]);
+      setListings(listingsData);
+      setCategories(categoriesData);
+      setLocations(locationsData);
+      setAmenities(amenitiesData);
+    } catch (error) {
+      console.error('Error loading advanced search data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-        const [listingsData, categoriesData, locationsData, amenitiesData] =
-          await Promise.all([
-            getListings({ per_page: 100 }),
-            getCategories(),
-            getLocations(),
-            getAmenities(),
-          ]);
-        setListings(listingsData);
-        setCategories(categoriesData);
-        setLocations(locationsData);
-        setAmenities(amenitiesData);
-      } catch (error) {
-        console.error('Error loading advanced search data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (embedded && listingsSeed) {
       setListings(listingsSeed);
       setCategories(taxonomySeed.categories || []);
@@ -122,6 +124,7 @@ const AdvancedSearch = ({
       checkIn: quickFilters.checkIn || '',
       checkOut: quickFilters.checkOut || '',
       minGuests: quickFilters.minGuests || '',
+      categories: quickFilters.categories || [],
     }));
   }, [quickFilters]);
 
@@ -144,13 +147,40 @@ const AdvancedSearch = ({
   useEffect(() => {
     if (mobileFiltersOpen) {
       document.body.style.overflow = 'hidden';
+      document.body.setAttribute('data-filter-modal-open', 'true');
     } else {
       document.body.style.overflow = '';
+      document.body.removeAttribute('data-filter-modal-open');
     }
     return () => {
       document.body.style.overflow = '';
+      document.body.removeAttribute('data-filter-modal-open');
     };
   }, [mobileFiltersOpen]);
+
+  // Handle sticky filter button on scroll (mobile only)
+  useEffect(() => {
+    if (!isMobile) {
+      setShowStickyFilter(false);
+      return;
+    }
+
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+      
+      // Show sticky filter when scrolled down past 100px
+      if (currentScrollY > 100) {
+        setShowStickyFilter(true);
+      } else {
+        setShowStickyFilter(false);
+      }
+      
+      setLastScrollY(currentScrollY);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isMobile, lastScrollY]);
 
   const filteredListings = useMemo(() => {
     return listings.filter((listing) => {
@@ -270,19 +300,36 @@ const AdvancedSearch = ({
   };
 
   const clearFilters = () => {
-    setFilters({
+    // Reset all filters to initial state
+    const resetFilters = {
       search: '',
       categories: [],
       locations: [],
-      minPrice: 0,
-      maxPrice: 1000000,
+      minPrice: PRICE_MIN,
+      maxPrice: PRICE_MAX,
       minRooms: '',
       minBeds: '',
       minGuests: '',
       amenities: [],
       checkIn: '',
       checkOut: '',
-    });
+    };
+    
+    setFilters(resetFilters);
+    
+    // Clear URL parameters if present
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.search) {
+        url.search = '';
+        window.history.replaceState({}, '', url.toString());
+      }
+    }
+    
+    // If embedded, reload all listings to show everything (not just listingsSeed)
+    if (embedded) {
+      loadData();
+    }
   };
 
   const renderCategoryFilters = () => (
@@ -1049,6 +1096,32 @@ const AdvancedSearch = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Sticky Filter Button (Mobile) */}
+      {isMobile && showStickyFilter && !mobileFiltersOpen && (
+        <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-200 shadow-md px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen(true)}
+            className="w-full inline-flex items-center justify-center gap-2 rounded-full border-2 border-primary-200 bg-white px-4 py-2.5 text-sm font-semibold text-primary-700 shadow-sm hover:border-primary-300 hover:bg-primary-50 transition-colors"
+          >
+            <svg
+              className="w-4 h-4 text-primary-600"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 4h18M6 8h12M9 12h6m2 4H7"
+              />
+            </svg>
+            Filters {appliedFiltersCount ? `(${appliedFiltersCount})` : ''}
+          </button>
         </div>
       )}
     </section>

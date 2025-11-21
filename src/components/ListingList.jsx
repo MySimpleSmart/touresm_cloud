@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { getListings, getCategories, getLocations, getSizes } from '../services/api';
 import ListingCard from './ListingCard';
 import QuickSearch from './QuickSearch';
@@ -21,6 +22,7 @@ const initialFiltersState = {
 };
 
 const ListingList = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState([]);
@@ -32,6 +34,27 @@ const ListingList = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Read category from URL and apply it
+  useEffect(() => {
+    const categoryParam = searchParams.get('category');
+    if (categoryParam) {
+      // Set category in filters
+      setFilters((prev) => ({
+        ...prev,
+        category: categoryParam,
+      }));
+
+      // Show AdvancedSearch with category filter
+      setQuickFilters({
+        locations: [],
+        checkIn: '',
+        checkOut: '',
+        minGuests: '',
+        categories: [categoryParam],
+      });
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     loadListings();
@@ -160,6 +183,9 @@ const ListingList = () => {
       onClose={() => {
         setQuickFilters(null);
         setFilters(initialFiltersState);
+        // Clear category from URL
+        searchParams.delete('category');
+        setSearchParams(searchParams);
       }}
       listingsSeed={listings}
       taxonomySeed={{ categories, locations }}

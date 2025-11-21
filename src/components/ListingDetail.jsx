@@ -19,6 +19,8 @@ const ListingDetail = () => {
   const [guestCount, setGuestCount] = useState(1);
   const [totalPrice, setTotalPrice] = useState(null);
   const [dateError, setDateError] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileBookingModalOpen, setMobileBookingModalOpen] = useState(false);
 
   const blockedDateSet = useMemo(() => {
     if (!listing) return new Set();
@@ -992,6 +994,31 @@ const ListingDetail = () => {
       return prev;
     });
   }, [maxGuests]);
+
+  // Detect mobile screen
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Handle body overflow when mobile booking modal is open
+  useEffect(() => {
+    if (mobileBookingModalOpen) {
+      document.body.style.overflow = 'hidden';
+      document.body.setAttribute('data-booking-modal-open', 'true');
+    } else {
+      document.body.style.overflow = '';
+      document.body.removeAttribute('data-booking-modal-open');
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.removeAttribute('data-booking-modal-open');
+    };
+  }, [mobileBookingModalOpen]);
   
   useEffect(() => {
     if (!listing?.listing_price) {
@@ -1603,6 +1630,265 @@ const ListingDetail = () => {
           </div>
         </div>
       </div>
+
+      {/* Mobile Sticky Booking Bar */}
+      {isMobile && listing && (
+        <>
+          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40">
+            <div className="px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  {listing.listing_price ? (
+                    <>
+                      <p className="text-xl font-bold text-primary-600">
+                        {totalPrice ? formatPrice(totalPrice.total) : formatPrice(listing.listing_price)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {totalPrice
+                          ? `${formatPrice(listing.listing_price)} × ${totalPrice.nights} night${totalPrice.nights === 1 ? '' : 's'}`
+                          : 'per night'}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-lg font-semibold text-gray-900">Price on request</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setMobileBookingModalOpen(true)}
+                  className="px-6 py-2.5 bg-primary-600 text-white rounded-full font-semibold hover:bg-primary-700 transition-colors"
+                >
+                  {totalPrice ? 'Book Now' : 'Check Availability'}
+                </button>
+              </div>
+            </div>
+          </div>
+          {/* Add padding to prevent content from being hidden behind sticky bar */}
+          <div className="md:hidden h-20" />
+        </>
+      )}
+
+      {/* Mobile Booking Modal */}
+      {isMobile && mobileBookingModalOpen && listing && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setMobileBookingModalOpen(false)}
+            aria-hidden="true"
+          />
+          <div className="absolute inset-x-0 bottom-0 top-4 bg-white rounded-t-3xl shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Booking</p>
+                <h3 className="text-lg font-semibold text-gray-900">Select dates & guests</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileBookingModalOpen(false)}
+                className="rounded-full border border-gray-200 p-2 text-gray-500 hover:text-gray-700"
+                aria-label="Close booking"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-6 pb-6">
+                {/* Price Display */}
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  {listing.listing_price ? (
+                    <>
+                      <div className="mb-3">
+                        <p className="text-2xl font-bold text-primary-600">
+                          {totalPrice ? formatPrice(totalPrice.total) : formatPrice(listing.listing_price)}
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          {totalPrice
+                            ? `${formatPrice(listing.listing_price)} × ${totalPrice.nights} night${totalPrice.nights === 1 ? '' : 's'}`
+                            : 'Select dates to see total price'}
+                        </p>
+                      </div>
+                      {totalPrice && (
+                        <div className="rounded-lg border-2 border-primary-200 bg-primary-50 px-4 py-3">
+                          <p className="text-sm font-semibold text-primary-900 mb-1">Deposit Required</p>
+                          <p className="text-lg font-bold text-primary-700">
+                            {formatPrice(totalPrice.total * 0.3)}
+                            <span className="text-sm font-normal text-primary-600 ml-1">(30% of total)</span>
+                          </p>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xl font-semibold text-gray-900">Price on request</p>
+                      <p className="text-sm text-gray-500">Contact the host for pricing</p>
+                    </>
+                  )}
+                </div>
+
+                {/* Date Pickers */}
+                <div>
+                  <label htmlFor="mobile-start-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    Check-in date
+                  </label>
+                  <CustomDatePicker
+                    selected={startDate}
+                    onChange={handleStartDateChange}
+                    onClear={() => {
+                      setStartDate(null);
+                      setEndDate(null);
+                      setDateError('');
+                    }}
+                    placeholder="Select check-in date"
+                    selectsStart
+                    startDate={startDate}
+                    endDate={endDate}
+                    filterDate={isDateSelectable}
+                  />
+                  {listing.check_in_time && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Check-in time: {formatTime(listing.check_in_time)}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="mobile-end-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    Check-out date
+                  </label>
+                  <CustomDatePicker
+                    selected={endDate}
+                    onChange={handleEndDateChange}
+                    onClear={() => {
+                      setEndDate(null);
+                      setDateError('');
+                    }}
+                    placeholder="Select check-out date"
+                    selectsEnd
+                    startDate={startDate}
+                    endDate={endDate}
+                    minDate={startDate || new Date()}
+                    filterDate={isDateSelectable}
+                  />
+                  {listing.check_out_time && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Check-out time: {formatTime(listing.check_out_time)}
+                    </p>
+                  )}
+                </div>
+
+                {dateError && (
+                  <div className="rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs font-medium text-red-600">
+                    {dateError}
+                  </div>
+                )}
+
+                {/* Check-in/Check-out Times */}
+                {(listing.check_in_time || listing.check_out_time) && (
+                  <div className="rounded-lg border border-gray-200 bg-white p-3">
+                    <div className="flex items-center justify-between text-sm">
+                      {listing.check_in_time && (
+                        <div className="flex items-center">
+                          <svg
+                            className="mr-2 h-4 w-4 text-primary-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          <span className="text-gray-600">Check-in:</span>
+                          <span className="ml-1 font-medium text-gray-900">{formatTime(listing.check_in_time)}</span>
+                        </div>
+                      )}
+                      {listing.check_in_time && listing.check_out_time && (
+                        <span className="mx-2 text-gray-300">•</span>
+                      )}
+                      {listing.check_out_time && (
+                        <div className="flex items-center">
+                          <svg
+                            className="mr-2 h-4 w-4 text-primary-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                          <span className="text-gray-600">Check-out:</span>
+                          <span className="ml-1 font-medium text-gray-900">{formatTime(listing.check_out_time)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Guest Selector */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Guests
+                  </label>
+                  <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setGuestCount((prev) => Math.max(prev - 1, 1))}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 text-lg font-semibold text-gray-600 transition hover:border-gray-300 hover:text-gray-800"
+                      aria-label="Decrease guests"
+                    >
+                      −
+                    </button>
+                    <div className="text-center">
+                      <p className="text-lg font-semibold text-gray-900">{guestCount}</p>
+                      <p className="text-xs text-gray-500">{guestCount === 1 ? 'Guest' : 'Guests'}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setGuestCount((prev) => Math.min(prev + 1, maxGuests))}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 text-lg font-semibold text-gray-600 transition hover:border-gray-300 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="Increase guests"
+                      disabled={guestCount >= maxGuests}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Maximum {maxGuests} {maxGuests === 1 ? 'guest' : 'guests'} allowed
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100">
+              <button
+                type="button"
+                disabled={!totalPrice}
+                onClick={() => {
+                  if (totalPrice) {
+                    setMobileBookingModalOpen(false);
+                    handleBookingConfirm();
+                  }
+                }}
+                className={`w-full rounded-full px-5 py-3 font-semibold text-white shadow-lg transition-all ${
+                  totalPrice
+                    ? 'bg-primary-600 hover:bg-primary-700'
+                    : 'bg-primary-300 cursor-not-allowed'
+                }`}
+              >
+                {totalPrice ? 'Proceed to Booking' : 'Select dates to continue'}
+              </button>
+              <p className="mt-2 text-center text-xs text-gray-500">
+                You won't be charged yet
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
