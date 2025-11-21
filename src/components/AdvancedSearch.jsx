@@ -1013,6 +1013,21 @@ const AdvancedSearch = ({
                 ✕
               </button>
             </div>
+            {activeChips.length > 0 && (
+              <div className="px-5 pt-4 pb-2 border-b border-gray-100">
+                <p className="text-xs text-gray-500 font-semibold mb-2 uppercase tracking-wide">Active Filters</p>
+                <div className="flex flex-wrap gap-2">
+                  {activeChips.map((chip, index) => (
+                    <span
+                      key={`mobile-chip-${chip}-${index}`}
+                      className="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700"
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <div className="space-y-8 pb-6">{renderFilterForm({ hideClearAction: true })}</div>
             </div>

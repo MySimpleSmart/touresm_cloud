@@ -274,6 +274,12 @@ function house_date_range_view_func() {
                 $available_dates_raw = get_post_meta($post_id, 'available_dates', true);
                 $available_dates = array_filter(array_map('trim', explode(',', $available_dates_raw)));
 
+                // Check if check-in date (start date) is available - REQUIRED
+                $start_date_formatted = date('Y-m-d', strtotime($start_val));
+                if (!in_array($start_date_formatted, $available_dates)) {
+                    continue; // Skip this house if check-in date is not available
+                }
+
                 // Build requested range
                 $range_dates = [];
                 $start_ts = strtotime($start_val);
