@@ -291,7 +291,7 @@ const Listings = () => {
                   </h3>
                   {listing.listing_price && (
                     <p className="text-primary-600 font-bold mb-2">
-                      ${parseFloat(listing.listing_price).toLocaleString()}/night
+                      ₮{parseFloat(listing.listing_price).toLocaleString()}/night
                     </p>
                   )}
                   <div className="mt-4 flex items-center justify-between">
