@@ -5,6 +5,15 @@ import Dashboard from './pages/Dashboard';
 import Listings from './pages/Listings';
 import ListingForm from './pages/ListingForm';
 import BookingCalendar from './pages/BookingCalendar';
+import BookingTable from './pages/BookingConfirmationTable';
+import AllHosts from './pages/AllHosts';
+import AllUsers from './pages/AllUsers';
+import Reports from './pages/Reports';
+import News from './pages/News';
+import Banner from './pages/Banner';
+import MyProfile from './pages/MyProfile';
+import Messages from './pages/Messages';
+import Settings from './pages/Settings';
 import Layout from './components/Layout';
 import { isAuthenticated } from './utils/auth';
 
@@ -83,6 +92,114 @@ function App() {
             authenticated ? (
               <Layout>
                 <BookingCalendar />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/booking-table"
+          element={
+            authenticated ? (
+              <Layout>
+                <BookingTable />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            authenticated ? (
+              <Layout>
+                <MyProfile />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/messages"
+          element={
+            authenticated ? (
+              <Layout>
+                <Messages />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            authenticated ? (
+              <Layout>
+                <Settings />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/hosts"
+          element={
+            authenticated ? (
+              <Layout>
+                <AllHosts />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            authenticated ? (
+              <Layout>
+                <AllUsers />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/reports"
+          element={
+            authenticated ? (
+              <Layout>
+                <Reports />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/news"
+          element={
+            authenticated ? (
+              <Layout>
+                <News />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/banner"
+          element={
+            authenticated ? (
+              <Layout>
+                <Banner />
               </Layout>
             ) : (
               <Navigate to="/login" replace />
