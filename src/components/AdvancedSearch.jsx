@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   getListings,
   getCategories,
@@ -22,6 +22,18 @@ const PRICE_MIN = 0;
 const PRICE_MAX = 1000000;
 const PRICE_STEP = 10000;
 
+const TriStateCheckbox = ({ indeterminate = false, ...props }) => {
+  const checkboxRef = useRef(null);
+
+  useEffect(() => {
+    if (checkboxRef.current) {
+      checkboxRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  return <input ref={checkboxRef} type="checkbox" {...props} />;
+};
+
 const formatDateLabel = (dateStr) => {
   if (!dateStr) return '';
   const date = new Date(dateStr);
@@ -40,23 +52,54 @@ const AdvancedSearch = ({
   const [categories, setCategories] = useState([]);
   const [locations, setLocations] = useState([]);
   const [amenities, setAmenities] = useState([]);
-  const [filters, setFilters] = useState({
-    search: '',
-    categories: [],
-    locations: [],
-    minPrice: 0,
-    maxPrice: 1000000,
-    minRooms: '',
-    minBeds: '',
-    minGuests: '',
-    amenities: [],
-    checkIn: '',
-    checkOut: '',
+  // Initialize filters with quickFilters if provided (lazy initialization)
+  // This runs ONLY once when component mounts, never again
+  // This prevents quickFilters from overriding user changes
+  // IMPORTANT: Always create new array references and normalize location IDs to strings
+  const [filters, setFilters] = useState(() => {
+    if (quickFilters) {
+      // Normalize location IDs to strings for consistency
+      // QuickSearch passes [String(locationId)], ensure format is consistent
+      const initialLocations = quickFilters.locations 
+        ? quickFilters.locations.map(id => String(id))
+        : [];
+      const initialCategories = quickFilters.categories 
+        ? quickFilters.categories.map(id => String(id))
+        : [];
+      
+      return {
+        search: '',
+        categories: initialCategories,
+        locations: initialLocations,
+        minPrice: 0,
+        maxPrice: 1000000,
+        minRooms: '',
+        minBeds: '',
+        minGuests: quickFilters.minGuests || '',
+        amenities: [],
+        checkIn: quickFilters.checkIn || '',
+        checkOut: quickFilters.checkOut || '',
+      };
+    }
+    return {
+      search: '',
+      categories: [],
+      locations: [],
+      minPrice: 0,
+      maxPrice: 1000000,
+      minRooms: '',
+      minBeds: '',
+      minGuests: '',
+      amenities: [],
+      checkIn: '',
+      checkOut: '',
+    };
   });
   const [isMobile, setIsMobile] = useState(false);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [showStickyFilter, setShowStickyFilter] = useState(false);
   const [lastScrollY, setLastScrollY] = useState(0);
+  const quickFiltersAppliedRef = useRef(false);
 
     const loadData = async () => {
       try {
@@ -81,16 +124,21 @@ const AdvancedSearch = ({
 
   useEffect(() => {
     if (embedded && listingsSeed) {
-      setListings(listingsSeed);
+      // Use taxonomySeed for categories and locations (already loaded)
       setCategories(taxonomySeed.categories || []);
       setLocations(taxonomySeed.locations || []);
+      
+      // BUT: Load ALL listings, not the pre-filtered listingsSeed
+      // This ensures location changes work correctly in AdvancedSearch
+      // listingsSeed might be pre-filtered, which breaks filtering
+      loadData();
+      
       getAmenities()
         .then(setAmenities)
         .catch((err) => {
           console.error('Error fetching amenities:', err);
           setAmenities([]);
-        })
-        .finally(() => setLoading(false));
+        });
     } else {
       loadData();
     }
@@ -118,17 +166,8 @@ const AdvancedSearch = ({
     return { parents, childrenMap };
   }, [locations]);
 
-  useEffect(() => {
-    if (!quickFilters) return;
-    setFilters((prev) => ({
-      ...prev,
-      locations: quickFilters.locations || [],
-      checkIn: quickFilters.checkIn || '',
-      checkOut: quickFilters.checkOut || '',
-      minGuests: quickFilters.minGuests || '',
-      categories: quickFilters.categories || [],
-    }));
-  }, [quickFilters]);
+  // quickFilters are now applied via lazy useState initialization above
+  // No useEffect needed - this prevents any interference with user changes
 
   useEffect(() => {
     const updateIsMobile = () => {
@@ -185,6 +224,11 @@ const AdvancedSearch = ({
   }, [isMobile, lastScrollY]);
 
   const filteredListings = useMemo(() => {
+    // Force read filters.locations directly - don't cache it
+    // This ensures we always get the latest value, especially after QuickSearch
+    const currentLocations = filters.locations || [];
+    const locationFilters = Array.isArray(currentLocations) ? [...currentLocations] : [];
+    
     return listings.filter((listing) => {
       if (filters.search) {
         const searchTarget =
@@ -206,7 +250,7 @@ const AdvancedSearch = ({
       if (
         !matchesLocationFilter(
           listing,
-          filters.locations,
+          locationFilters,
           locations,
           locationLookup
         )
@@ -271,7 +315,7 @@ const AdvancedSearch = ({
 
       return true;
     });
-  }, [listings, filters, locations, locationLookup]);
+  }, [listings, filters, locations, locationLookup]); // Use entire filters object to ensure any change triggers recalculation
 
   const toggleFilterValue = (field, value) => {
     setFilters((prev) => {
@@ -420,18 +464,31 @@ const AdvancedSearch = ({
           const children = filteredGroupedLocations.childrenMap[parentId] || [];
           const hasChildren = children.length > 0;
           const isExpanded = expandedLocationParents.has(parentId);
+          const isExplicit = explicitLocationSet.has(parentId);
+          const isImplicit = implicitLocationSet.has(parentId);
+          const isParentChecked = isExplicit || isImplicit;
           
           return (
             <div key={parentId}>
               <div className="flex items-center justify-between">
                 <label className="flex items-center space-x-3 text-gray-800 text-sm font-medium flex-1">
-                  <input
-                    type="checkbox"
-                    checked={filters.locations.includes(parentId)}
+                  <TriStateCheckbox
+                    checked={isParentChecked}
+                    indeterminate={!isExplicit && isImplicit}
                     onChange={() => handleLocationToggle(parentId)}
                     className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                   />
-                  <span>{parent.name}</span>
+                  <span
+                    className={`${
+                      isExplicit
+                        ? 'text-primary-700 font-semibold'
+                        : isImplicit
+                        ? 'text-primary-600'
+                        : ''
+                    }`}
+                  >
+                    {parent.name}
+                  </span>
                 </label>
                 {hasChildren && (
                   <button
@@ -460,18 +517,21 @@ const AdvancedSearch = ({
                 <div className="ml-7 mt-2 space-y-2 border-l border-gray-200 pl-3">
                   {children.map((child) => {
                     const childId = String(child.id || child.term_id);
+                    const isChildExplicit = explicitLocationSet.has(childId);
                     return (
                       <label
                         key={childId}
                         className="flex items-center space-x-2 text-gray-600 text-sm"
                       >
-                        <input
-                          type="checkbox"
-                          checked={filters.locations.includes(childId)}
+                        <TriStateCheckbox
+                          checked={isChildExplicit}
+                          indeterminate={false}
                           onChange={() => handleLocationToggle(childId)}
                           className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                         />
-                        <span>{child.name}</span>
+                        <span className={isChildExplicit ? 'text-primary-700 font-semibold' : ''}>
+                          {child.name}
+                        </span>
                       </label>
                     );
                   })}
@@ -504,18 +564,6 @@ const AdvancedSearch = ({
     return { parents, childrenMap };
   }, [amenities]);
 
-  const locationParentMap = useMemo(() => {
-    const map = new Map();
-    locations.forEach((loc) => {
-      const childId = String(loc.id || loc.term_id);
-      const parentId = loc.parent || loc.parent_id || loc.parent_term_id || 0;
-      if (childId && parentId && parentId !== 0 && parentId !== '0') {
-        map.set(childId, String(parentId));
-      }
-    });
-    return map;
-  }, [locations]);
-
   const amenityParentMap = useMemo(() => {
     const map = new Map();
     amenities.forEach((amenity) => {
@@ -528,59 +576,74 @@ const AdvancedSearch = ({
     return map;
   }, [amenities]);
 
-  const getLocationDescendants = (id) => {
-    const numericId = Number(id);
-    if (Number.isNaN(numericId)) return [String(id)];
-    const descendants = locationLookup.get(numericId);
-    if (!descendants || descendants.size === 0) {
-      return [String(id)];
-    }
-    return Array.from(descendants).map((val) => String(val));
-  };
-
-  const addLocationAncestors = (id, selectedSet) => {
-    let parentId = locationParentMap.get(String(id));
-    while (parentId) {
-      selectedSet.add(parentId);
-      parentId = locationParentMap.get(parentId);
-    }
-  };
-
-  const pruneLocationAncestors = (id, selectedSet) => {
-    let parentId = locationParentMap.get(String(id));
-    while (parentId) {
-      const childNodes = groupedLocations.childrenMap[parentId] || [];
-      const hasSelectedChild = childNodes.some((child) => {
-        const childId = String(child.id || child.term_id);
-        return selectedSet.has(childId);
-      });
-      if (!hasSelectedChild) {
-        selectedSet.delete(parentId);
-        parentId = locationParentMap.get(parentId);
-      } else {
-        break;
+  const locationParentMap = useMemo(() => {
+    const map = new Map();
+    locations.forEach((loc) => {
+      const childId = String(loc.id || loc.term_id);
+      const parentId = loc.parent || loc.parent_id || loc.parent_term_id || 0;
+      if (childId && parentId && parentId !== 0 && parentId !== '0') {
+        map.set(childId, String(parentId));
       }
-    }
-  };
+    });
+    return map;
+  }, [locations]);
+
+  const explicitLocationIds = useMemo(
+    () => (filters.locations || []).map((id) => String(id)),
+    [filters.locations]
+  );
+
+  const explicitLocationSet = useMemo(() => new Set(explicitLocationIds), [explicitLocationIds]);
+
+  const implicitLocationSet = useMemo(() => {
+    const implicit = new Set();
+    explicitLocationIds.forEach((id) => {
+      let parentId = locationParentMap.get(id);
+      while (parentId) {
+        if (implicit.has(parentId)) {
+          parentId = locationParentMap.get(parentId);
+          continue;
+        }
+        implicit.add(parentId);
+        parentId = locationParentMap.get(parentId);
+      }
+    });
+    return implicit;
+  }, [explicitLocationIds, locationParentMap]);
+
+  const displayedLocationSet = useMemo(() => {
+    const combined = new Set(explicitLocationIds);
+    implicitLocationSet.forEach((id) => combined.add(id));
+    return combined;
+  }, [explicitLocationIds, implicitLocationSet]);
 
   const handleLocationToggle = (targetId) => {
     const normalizedId = String(targetId);
+    
+    // Use functional update and create a completely new state object
+    // This is critical to ensure React detects the change when coming from QuickSearch
     setFilters((prev) => {
-      const next = new Set(prev.locations || []);
-      const descendants = getLocationDescendants(normalizedId);
-      const isFullySelected = descendants.every((val) => next.has(val));
-
-      if (isFullySelected) {
-        descendants.forEach((val) => next.delete(val));
-        pruneLocationAncestors(normalizedId, next);
+      // Always create a fresh copy of the locations array
+      const currentLocations = Array.isArray(prev.locations) ? [...prev.locations] : [];
+      
+      // Convert all to strings for consistent comparison
+      const next = new Set(currentLocations.map((id) => String(id)));
+      
+      // Toggle the location
+      if (next.has(normalizedId)) {
+        next.delete(normalizedId);
       } else {
-        descendants.forEach((val) => next.add(val));
-        addLocationAncestors(normalizedId, next);
+        next.add(normalizedId);
       }
 
+      // Create new array with sorted IDs for consistency
+      const newLocations = Array.from(next).sort();
+      
+      // Return completely new object with new array reference
+      // This is essential for React to detect the change
       return {
         ...prev,
-        locations: Array.from(next),
+        locations: newLocations,
       };
     });
   };
@@ -1012,8 +1075,32 @@ const AdvancedSearch = ({
   if (filters.search) {
     activeChips.push(`Search: ${filters.search}`);
   }
-  if (filters.locations.length) {
-    const names = filters.locations
+  if (displayedLocationSet.size) {
+    // Sort locations so parents come before children
+    const orderedDisplayIds = [
+      ...explicitLocationIds,
+      ...Array.from(implicitLocationSet).filter((id) => !explicitLocationSet.has(id)),
+    ];
+    
+    // Separate parents and children, then sort so parents come first
+    const parentIds = [];
+    const childIds = [];
+    
+    orderedDisplayIds.forEach((id) => {
+      const location = locationLabelMap.get(String(id));
+      if (location) {
+        const parentId = location.parent || location.parent_id || location.parent_term_id || 0;
+        if (parentId && parentId !== 0 && parentId !== '0') {
+          childIds.push(id);
+        } else {
+          parentIds.push(id);
+        }
+      }
+    });
+    
+    // Combine: parents first, then children
+    const sortedIds = [...parentIds, ...childIds];
+    const names = sortedIds
       .map((id) => locationLabelMap.get(String(id))?.name)
       .filter(Boolean);
     if (names.length) {

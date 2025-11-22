@@ -128,7 +128,9 @@ const QuickSearch = ({ locations = [], onSearch }) => {
   return (
     <div className="bg-white rounded-2xl p-4 sm:p-6 mb-8 shadow-sm border border-gray-100">
       <div className="mb-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Find Your Perfect Stay</h2>
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+          Find Your Perfect Stay with <span className="text-primary-600">Touresm</span>
+        </h2>
       </div>
 
       {isMobile && (
