@@ -8,6 +8,7 @@ import {
   getLocations,
   getAmenities,
   getSizes,
+  getPeriodTypes,
   getMedia,
   getMediaByParent,
   updateMediaItem,
@@ -209,23 +210,60 @@ const ListingForm = () => {
   const [initialSnapshot, setInitialSnapshot] = useState(null);
 
   const [formData, setFormData] = useState({
+    // Basic Details
     listing_name: '',
     listing_description: '',
-    listing_price: '',
+    // Property Details
+    room_number: '',
+    listing_bed_number: '',
+    guest_max_number: '',
+    // Price Details
+    listing_price_general: '',
+    listing_price_weekly: '',
+    listing_price_fortnightly: '',
+    listing_price_monthly: '',
+    listing_price_annually: '',
+    // Discount Details
+    discount_number_night_1: '',
+    discount_percent_night_1: '',
+    discount_number_night_2: '',
+    discount_percent_night_2: '',
+    discount_number_night_3: '',
+    discount_percent_night_3: '',
+    discount_number_guest_1: '',
+    discount_percent_guest_1: '',
+    discount_number_guest_2: '',
+    discount_percent_guest_2: '',
+    discount_number_guest_3: '',
+    discount_percent_guest_3: '',
+    // Time Details
+    default_check_in_time: '',
+    default_check_out_time: '',
+    business_check_in_time: '',
+    business_check_out_time: '',
+    weekend_check_in_time: '',
+    weekend_check_out_time: '',
+    // Location Details
+    exact_location: '',
+    listing_familiar_location: '',
+    // Video and Social
+    listing_video: '',
+    listing_social_url: '',
+    // Gallery
+    listing_gallery: [],
+    // Listing Rules
+    listing_rule: '',
+    // Admin Details
+    admin_blocked_days: '',
+    host_blocked_days: '',
+    listing_minimum_stays: '',
+    // Taxonomies (keep existing)
     listing_location: [],
     listing_region: [],
     listing_category: [],
     listing_size: [],
     listing_aminities: [],
-    listing_social_url: '',
-    listing_video: '',
-    listing_familiar_location: '',
-    room_number: '',
-    listing_bed_number: '',
-    guest_max_number: '',
-    check_in_time: '',
-    check_out_time: '',
-    listing_gallery: [],
+    listing_period_type: [],
     // Location fields
     parent_location: null,
     child_location: null,
@@ -237,7 +275,139 @@ const ListingForm = () => {
     locations: [],
     amenities: [],
     sizes: [],
+    periodTypes: [],
   });
+
+  // Price rows state - dynamic list of period-price pairs
+  const [priceRows, setPriceRows] = useState([
+    { id: 1, period: 'daily', price: '' }
+  ]);
+
+  // Discount toggle state
+  const [discountEnabled, setDiscountEnabled] = useState(false);
+
+  // Dynamic discount rows (night-based and guest-based), max 3 each
+  const [nightDiscountRows, setNightDiscountRows] = useState([
+    { id: 1, count: '', percent: '5', mode: 'preset' },
+  ]);
+
+  const [guestDiscountRows, setGuestDiscountRows] = useState([
+    { id: 1, count: '', percent: '5', mode: 'preset' },
+  ]);
+
+  // Initialize discount enabled state when loading listing
+  useEffect(() => {
+    if (isEdit && formData.discount_number_night_1 !== undefined) {
+      // Check if any discount values exist
+      const hasDiscounts = 
+        formData.discount_number_night_1 || formData.discount_percent_night_1 ||
+        formData.discount_number_night_2 || formData.discount_percent_night_2 ||
+        formData.discount_number_night_3 || formData.discount_percent_night_3 ||
+        formData.discount_number_guest_1 || formData.discount_percent_guest_1 ||
+        formData.discount_number_guest_2 || formData.discount_percent_guest_2 ||
+        formData.discount_number_guest_3 || formData.discount_percent_guest_3;
+      setDiscountEnabled(!!hasDiscounts);
+    }
+  }, [isEdit, formData.discount_number_night_1, formData.discount_percent_night_1]);
+
+  // Helper to normalize percent before saving (ignore 'custom' sentinel)
+  const normalizePercent = (p) => (p === 'custom' ? '' : p || '');
+
+  // Sync night discount rows into formData fields
+  useEffect(() => {
+    const [row1, row2, row3] = nightDiscountRows;
+    setFormData(prev => ({
+      ...prev,
+      discount_number_night_1: row1?.count || '',
+      discount_percent_night_1: normalizePercent(row1?.percent),
+      discount_number_night_2: row2?.count || '',
+      discount_percent_night_2: normalizePercent(row2?.percent),
+      discount_number_night_3: row3?.count || '',
+      discount_percent_night_3: normalizePercent(row3?.percent),
+    }));
+  }, [nightDiscountRows]);
+
+  // Sync guest discount rows into formData fields
+  useEffect(() => {
+    const [row1, row2, row3] = guestDiscountRows;
+    setFormData(prev => ({
+      ...prev,
+      discount_number_guest_1: row1?.count || '',
+      discount_percent_guest_1: normalizePercent(row1?.percent),
+      discount_number_guest_2: row2?.count || '',
+      discount_percent_guest_2: normalizePercent(row2?.percent),
+      discount_number_guest_3: row3?.count || '',
+      discount_percent_guest_3: normalizePercent(row3?.percent),
+    }));
+  }, [guestDiscountRows]);
+
+  // Initialize discount rows from formData when editing (only once)
+  const [discountRowsInitialized, setDiscountRowsInitialized] = useState(false);
+
+  useEffect(() => {
+    if (!isEdit || discountRowsInitialized || formData.discount_number_night_1 === undefined) {
+      return;
+    }
+
+    // Night-based rows
+    const nightRows = [];
+    let idCounter = 1;
+    const nightSource = [
+      { count: formData.discount_number_night_1, percent: formData.discount_percent_night_1 },
+      { count: formData.discount_number_night_2, percent: formData.discount_percent_night_2 },
+      { count: formData.discount_number_night_3, percent: formData.discount_percent_night_3 },
+    ];
+    nightSource.forEach(src => {
+      if ((src.count && src.count !== '') || (src.percent && src.percent !== '')) {
+        const percentStr = String(src.percent || '');
+        const presetOptions = ['5', '10', '15', '20'];
+        const mode = presetOptions.includes(percentStr) ? 'preset' : 'custom';
+        nightRows.push({ id: idCounter++, count: String(src.count || ''), percent: percentStr || '5', mode });
+      }
+    });
+    if (nightRows.length === 0) {
+      nightRows.push({ id: 1, count: '', percent: '5', mode: 'preset' });
+    }
+    setNightDiscountRows(nightRows);
+
+    // Guest-based rows
+    const guestRows = [];
+    idCounter = 1;
+    const guestSource = [
+      { count: formData.discount_number_guest_1, percent: formData.discount_percent_guest_1 },
+      { count: formData.discount_number_guest_2, percent: formData.discount_percent_guest_2 },
+      { count: formData.discount_number_guest_3, percent: formData.discount_percent_guest_3 },
+    ];
+    guestSource.forEach(src => {
+      if ((src.count && src.count !== '') || (src.percent && src.percent !== '')) {
+        const percentStr = String(src.percent || '');
+        const presetOptions = ['5', '10', '15', '20'];
+        const mode = presetOptions.includes(percentStr) ? 'preset' : 'custom';
+        guestRows.push({ id: idCounter++, count: String(src.count || ''), percent: percentStr || '5', mode });
+      }
+    });
+    if (guestRows.length === 0) {
+      guestRows.push({ id: 1, count: '', percent: '5', mode: 'preset' });
+    }
+    setGuestDiscountRows(guestRows);
+
+    setDiscountRowsInitialized(true);
+  }, [
+    isEdit,
+    discountRowsInitialized,
+    formData.discount_number_night_1,
+    formData.discount_number_night_2,
+    formData.discount_number_night_3,
+    formData.discount_percent_night_1,
+    formData.discount_percent_night_2,
+    formData.discount_percent_night_3,
+    formData.discount_number_guest_1,
+    formData.discount_number_guest_2,
+    formData.discount_number_guest_3,
+    formData.discount_percent_guest_1,
+    formData.discount_percent_guest_2,
+    formData.discount_percent_guest_3,
+  ]);
 
   const isDirty = useMemo(() => {
     if (!initialSnapshot) return false;
@@ -248,6 +418,335 @@ const ListingForm = () => {
       return false;
     }
   }, [formData, initialSnapshot]);
+
+  // Render helpers for discount rows (keeps JSX simpler for esbuild)
+  const renderNightDiscountRow = (row, index) => {
+    const canRemove = nightDiscountRows.length > 1;
+    const canAddMore = nightDiscountRows.length < 3;
+    const isLast = index === nightDiscountRows.length - 1;
+
+    return (
+      <div key={row.id} className="grid grid-cols-12 gap-3 items-center w-full">
+        <div className="col-span-4 w-full">
+          <select
+            value="night"
+            disabled
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-600 text-sm"
+          >
+            <option>Night Based</option>
+          </select>
+        </div>
+        <div className="col-span-3 w-full">
+          <input
+            type="number"
+            min="0"
+            value={row.count}
+            onChange={(e) =>
+              setNightDiscountRows((rows) =>
+                rows.map((r) =>
+                  r.id === row.id ? { ...r, count: e.target.value } : r
+                )
+              )
+            }
+            disabled={!discountEnabled}
+            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+              !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+            }`}
+            placeholder="3"
+          />
+        </div>
+        <div className="col-span-5 flex items-center gap-2 w-full">
+          <div className="flex items-center gap-2 flex-1 w-full">
+            {(() => {
+              const presetOptions = ['5', '10', '15', '20'];
+              const isCustom =
+                row.mode === 'custom' ||
+                (row.percent && !presetOptions.includes(String(row.percent)));
+              const selectValue = isCustom ? 'custom' : String(row.percent || '5');
+              return (
+                <>
+                  <select
+                    value={selectValue}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setNightDiscountRows((rows) =>
+                        rows.map((r) => {
+                          if (r.id !== row.id) return r;
+                          if (v === 'custom') {
+                            return { ...r, mode: 'custom', percent: '' };
+                          }
+                          return { ...r, mode: 'preset', percent: v || '5' };
+                        })
+                      );
+                    }}
+                    disabled={!discountEnabled}
+                    className={`${isCustom ? 'flex-1' : 'w-full'} px-2 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 text-sm ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <option value="5">5%</option>
+                    <option value="10">10%</option>
+                    <option value="15">15%</option>
+                    <option value="20">20%</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {isCustom && (
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={
+                        row.percent && row.percent !== 'custom' ? row.percent : ''
+                      }
+                      onChange={(e) =>
+                        setNightDiscountRows((rows) =>
+                          rows.map((r) =>
+                            r.id === row.id
+                              ? { ...r, mode: 'custom', percent: e.target.value }
+                              : r
+                          )
+                        )
+                      }
+                      disabled={!discountEnabled}
+                      className={`flex-1 px-2 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 text-sm ${
+                        !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
+                      placeholder="Custom"
+                    />
+                  )}
+                </>
+              );
+            })()}
+          </div>
+          <div className="flex gap-1">
+            {canRemove && (
+              <button
+                type="button"
+                onClick={() =>
+                  setNightDiscountRows((rows) =>
+                    rows.filter((r) => r.id !== row.id)
+                  )
+                }
+                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                title="Remove"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10"
+                  />
+                </svg>
+              </button>
+            )}
+            {isLast && canAddMore && (
+              <button
+                type="button"
+                onClick={() =>
+                  setNightDiscountRows((rows) => [
+                    ...rows,
+                    {
+                      id: Math.max(...rows.map((r) => r.id), 0) + 1,
+                      count: '',
+                      percent: '5',
+                      mode: 'preset',
+                    },
+                  ])
+                }
+                className="p-1.5 text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                title="Add"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderGuestDiscountRow = (row, index) => {
+    const canRemove = guestDiscountRows.length > 1;
+    const canAddMore = guestDiscountRows.length < 3;
+    const isLast = index === guestDiscountRows.length - 1;
+
+    return (
+      <div key={row.id} className="grid grid-cols-12 gap-3 items-center w-full">
+        <div className="col-span-4 w-full">
+          <select
+            value="guest"
+            disabled
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-600 text-sm"
+          >
+            <option>Guest Based</option>
+          </select>
+        </div>
+        <div className="col-span-3 w-full">
+          <input
+            type="number"
+            min="0"
+            value={row.count}
+            onChange={(e) =>
+              setGuestDiscountRows((rows) =>
+                rows.map((r) =>
+                  r.id === row.id ? { ...r, count: e.target.value } : r
+                )
+              )
+            }
+            disabled={!discountEnabled}
+            className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+              !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+            }`}
+            placeholder="3"
+          />
+        </div>
+        <div className="col-span-5 flex items-center gap-2 w-full">
+          <div className="flex items-center gap-2 flex-1 w-full">
+            {(() => {
+              const presetOptions = ['5', '10', '15', '20'];
+              const isCustom =
+                row.mode === 'custom' ||
+                (row.percent && !presetOptions.includes(String(row.percent)));
+              const selectValue = isCustom ? 'custom' : String(row.percent || '5');
+              return (
+                <>
+                  <select
+                    value={selectValue}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setGuestDiscountRows((rows) =>
+                        rows.map((r) => {
+                          if (r.id !== row.id) return r;
+                          if (v === 'custom') {
+                            return { ...r, mode: 'custom', percent: '' };
+                          }
+                          return { ...r, mode: 'preset', percent: v || '5' };
+                        })
+                      );
+                    }}
+                    disabled={!discountEnabled}
+                    className={`${isCustom ? 'flex-1' : 'w-full'} px-2 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 text-sm ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    <option value="5">5%</option>
+                    <option value="10">10%</option>
+                    <option value="15">15%</option>
+                    <option value="20">20%</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  {isCustom && (
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={
+                        row.percent && row.percent !== 'custom' ? row.percent : ''
+                      }
+                      onChange={(e) =>
+                        setGuestDiscountRows((rows) =>
+                          rows.map((r) =>
+                            r.id === row.id
+                              ? { ...r, mode: 'custom', percent: e.target.value }
+                              : r
+                          )
+                        )
+                      }
+                      disabled={!discountEnabled}
+                      className={`flex-1 px-2 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 text-sm ${
+                        !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
+                      placeholder="Custom"
+                    />
+                  )}
+                </>
+              );
+            })()}
+          </div>
+          <div className="flex gap-1">
+            {canRemove && (
+              <button
+                type="button"
+                onClick={() =>
+                  setGuestDiscountRows((rows) =>
+                    rows.filter((r) => r.id !== row.id)
+                  )
+                }
+                className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                title="Remove"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10"
+                  />
+                </svg>
+              </button>
+            )}
+            {isLast && canAddMore && (
+              <button
+                type="button"
+                onClick={() =>
+                  setGuestDiscountRows((rows) => [
+                    ...rows,
+                    {
+                      id: Math.max(...rows.map((r) => r.id), 0) + 1,
+                      count: '',
+                      percent: '5',
+                      mode: 'preset',
+                    },
+                  ])
+                }
+                className="p-1.5 text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                title="Add"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   useEffect(() => {
     const initialize = async () => {
@@ -260,25 +759,122 @@ const ListingForm = () => {
           loadListing();
         }, 100);
       } else {
-        // New listing: capture initial snapshot so unsaved-change detection works
+        // New listing: Set short-term as default
+        if (taxData.periodTypes && taxData.periodTypes.length > 0) {
+          const shortTermType = taxData.periodTypes.find(pt => {
+            const name = (pt.name || '').toLowerCase();
+            const slug = (pt.slug || '').toLowerCase();
+            return name.includes('short') || slug.includes('short') || name.includes('st') || slug.includes('st');
+          });
+          
+          if (shortTermType) {
+            const shortTermId = shortTermType.id || shortTermType.term_id;
+            const defaultPeriodType = [{ id: shortTermId }];
+            setFormData(prev => ({
+              ...prev,
+              listing_period_type: defaultPeriodType
+            }));
+            
+            // Capture initial snapshot with short-term selected
         try {
           setInitialSnapshot(JSON.stringify({
             listing_name: '',
             listing_description: '',
-            listing_price: '',
+                room_number: '',
+                listing_bed_number: '',
+                guest_max_number: '',
+                listing_price_general: '',
+                listing_price_weekly: '',
+                listing_price_fortnightly: '',
+                listing_price_monthly: '',
+                listing_price_annually: '',
+                discount_number_night_1: '',
+                discount_percent_night_1: '',
+                discount_number_night_2: '',
+                discount_percent_night_2: '',
+                discount_number_night_3: '',
+                discount_percent_night_3: '',
+                discount_number_guest_1: '',
+                discount_percent_guest_1: '',
+                discount_number_guest_2: '',
+                discount_percent_guest_2: '',
+                discount_number_guest_3: '',
+                discount_percent_guest_3: '',
+                default_check_in_time: '',
+                default_check_out_time: '',
+                business_check_in_time: '',
+                business_check_out_time: '',
+                weekend_check_in_time: '',
+                weekend_check_out_time: '',
+                exact_location: '',
+                listing_familiar_location: '',
+                listing_video: '',
+                listing_social_url: '',
+                listing_gallery: [],
+                listing_rule: '',
+                admin_blocked_days: '',
+                host_blocked_days: '',
+                listing_minimum_stays: '',
             listing_location: [],
             listing_region: [],
             listing_category: [],
             listing_size: [],
             listing_aminities: [],
-            listing_social_url: '',
-            listing_video: '',
+                listing_period_type: defaultPeriodType,
+                parent_location: null,
+                child_location: null,
+              }));
+            } catch {}
+            return;
+          }
+        }
+        
+        // If no short-term found, set empty snapshot
+        try {
+          setInitialSnapshot(JSON.stringify({
+            listing_name: '',
+            listing_description: '',
             room_number: '',
             listing_bed_number: '',
             guest_max_number: '',
-            check_in_time: '',
-            check_out_time: '',
+            listing_price_general: '',
+            listing_price_weekly: '',
+            listing_price_fortnightly: '',
+            listing_price_monthly: '',
+            listing_price_annually: '',
+            discount_number_night_1: '',
+            discount_percent_night_1: '',
+            discount_number_night_2: '',
+            discount_percent_night_2: '',
+            discount_number_night_3: '',
+            discount_percent_night_3: '',
+            discount_number_guest_1: '',
+            discount_percent_guest_1: '',
+            discount_number_guest_2: '',
+            discount_percent_guest_2: '',
+            discount_number_guest_3: '',
+            discount_percent_guest_3: '',
+            default_check_in_time: '',
+            default_check_out_time: '',
+            business_check_in_time: '',
+            business_check_out_time: '',
+            weekend_check_in_time: '',
+            weekend_check_out_time: '',
+            exact_location: '',
+            listing_familiar_location: '',
+            listing_video: '',
+            listing_social_url: '',
             listing_gallery: [],
+            listing_rule: '',
+            admin_blocked_days: '',
+            host_blocked_days: '',
+            listing_minimum_stays: '',
+            listing_location: [],
+            listing_region: [],
+            listing_category: [],
+            listing_size: [],
+            listing_aminities: [],
+            listing_period_type: [],
             parent_location: null,
             child_location: null,
           }));
@@ -290,23 +886,25 @@ const ListingForm = () => {
 
   const loadTaxonomies = async () => {
     try {
-      const [categories, locations, amenities, sizes] = await Promise.all([
+      const [categories, locations, amenities, sizes, periodTypes] = await Promise.all([
         getCategories().catch(() => []),
         getLocations().catch(() => []),
         getAmenities().catch(() => []),
         getSizes().catch(() => []),
+        getPeriodTypes().catch(() => []),
       ]);
       const taxData = { 
         categories: categories || [], 
         locations: locations || [], 
         amenities: amenities || [], 
-        sizes: sizes || [] 
+        sizes: sizes || [],
+        periodTypes: periodTypes || []
       };
       setTaxonomies(taxData);
       return taxData;
     } catch (err) {
       // silent
-      const emptyData = { categories: [], locations: [], amenities: [], sizes: [] };
+      const emptyData = { categories: [], locations: [], amenities: [], sizes: [], periodTypes: [] };
       setTaxonomies(emptyData);
       return emptyData;
     }
@@ -417,6 +1015,62 @@ const ListingForm = () => {
     return formData.listing_aminities.some((amenity) => {
       const id = extractTaxonomyId(amenity);
       return id === amenityId || String(id) === String(amenityId);
+    });
+  };
+
+  // Check if period type is selected
+  const isPeriodTypeSelected = (periodTypeId) => {
+    if (!formData.listing_period_type || formData.listing_period_type.length === 0) return false;
+    return formData.listing_period_type.some((periodType) => {
+      const id = extractTaxonomyId(periodType);
+      return id === periodTypeId || String(id) === String(periodTypeId);
+    });
+  };
+
+  // Handle period type toggle
+  const handlePeriodTypeToggle = (periodTypeId) => {
+    const currentPeriodTypes = formData.listing_period_type || [];
+    const isSelected = isPeriodTypeSelected(periodTypeId);
+
+    if (isSelected) {
+      // Remove from selection
+      const updated = currentPeriodTypes.filter((periodType) => {
+        const id = extractTaxonomyId(periodType);
+        return !(id === periodTypeId || String(id) === String(periodTypeId));
+      });
+      setFormData((prev) => ({ ...prev, listing_period_type: updated }));
+    } else {
+      // Add to selection
+      const newPeriodType = { id: periodTypeId };
+      setFormData((prev) => ({ 
+        ...prev, 
+        listing_period_type: [...currentPeriodTypes, newPeriodType]
+      }));
+    }
+  };
+
+  // Helper to check if short-term or long-term is selected (by name or slug)
+  const hasShortTerm = () => {
+    if (!formData.listing_period_type || formData.listing_period_type.length === 0) return false;
+    return formData.listing_period_type.some((periodType) => {
+      const id = extractTaxonomyId(periodType);
+      const periodTypeObj = taxonomies.periodTypes.find(pt => (pt.id || pt.term_id) === id);
+      if (!periodTypeObj) return false;
+      const name = (periodTypeObj.name || '').toLowerCase();
+      const slug = (periodTypeObj.slug || '').toLowerCase();
+      return name.includes('short') || slug.includes('short') || name.includes('st') || slug.includes('st');
+    });
+  };
+
+  const hasLongTerm = () => {
+    if (!formData.listing_period_type || formData.listing_period_type.length === 0) return false;
+    return formData.listing_period_type.some((periodType) => {
+      const id = extractTaxonomyId(periodType);
+      const periodTypeObj = taxonomies.periodTypes.find(pt => (pt.id || pt.term_id) === id);
+      if (!periodTypeObj) return false;
+      const name = (periodTypeObj.name || '').toLowerCase();
+      const slug = (periodTypeObj.slug || '').toLowerCase();
+      return name.includes('long') || slug.includes('long') || name.includes('lt') || slug.includes('lt');
     });
   };
 
@@ -769,24 +1423,63 @@ const ListingForm = () => {
       }
       
       // Map listing data to form data
+      // Map old field names to new ones for backward compatibility
       const mapped = {
+        // Basic Details
         listing_name: listing.listing_name || listing.title?.rendered || '',
         listing_description: listing.listing_description || listing.content?.rendered || '',
-        listing_price: listing.listing_price || listing.meta?.listing_price || '',
+        // Property Details
+        room_number: listing.room_number || listing.meta?.room_number || '',
+        listing_bed_number: listing.listing_bed_number || listing.meta?.listing_bed_number || '',
+        guest_max_number: listing.guest_max_number || listing.meta?.guest_max_number || '',
+        // Price Details - map old listing_price to listing_price_general
+        listing_price_general: listing.listing_price_general || listing.listing_price || listing.meta?.listing_price_general || listing.meta?.listing_price || '',
+        listing_price_weekly: listing.listing_price_weekly || listing.meta?.listing_price_weekly || '',
+        listing_price_fortnightly: listing.listing_price_fortnightly || listing.meta?.listing_price_fortnightly || '',
+        listing_price_monthly: listing.listing_price_monthly || listing.meta?.listing_price_monthly || '',
+        listing_price_annually: listing.listing_price_annually || listing.meta?.listing_price_annually || '',
+        // Discount Details
+        discount_number_night_1: listing.discount_number_night_1 || listing.meta?.discount_number_night_1 || '',
+        discount_percent_night_1: listing.discount_percent_night_1 || listing.meta?.discount_percent_night_1 || '',
+        discount_number_night_2: listing.discount_number_night_2 || listing.meta?.discount_number_night_2 || '',
+        discount_percent_night_2: listing.discount_percent_night_2 || listing.meta?.discount_percent_night_2 || '',
+        discount_number_night_3: listing.discount_number_night_3 || listing.meta?.discount_number_night_3 || '',
+        discount_percent_night_3: listing.discount_percent_night_3 || listing.meta?.discount_percent_night_3 || '',
+        discount_number_guest_1: listing.discount_number_guest_1 || listing.meta?.discount_number_guest_1 || '',
+        discount_percent_guest_1: listing.discount_percent_guest_1 || listing.meta?.discount_percent_guest_1 || '',
+        discount_number_guest_2: listing.discount_number_guest_2 || listing.meta?.discount_number_guest_2 || '',
+        discount_percent_guest_2: listing.discount_percent_guest_2 || listing.meta?.discount_percent_guest_2 || '',
+        discount_number_guest_3: listing.discount_number_guest_3 || listing.meta?.discount_number_guest_3 || '',
+        discount_percent_guest_3: listing.discount_percent_guest_3 || listing.meta?.discount_percent_guest_3 || '',
+        // Time Details - map old check_in_time/check_out_time to default_*
+        default_check_in_time: listing.default_check_in_time || listing.check_in_time || listing.meta?.default_check_in_time || listing.meta?.check_in_time || '',
+        default_check_out_time: listing.default_check_out_time || listing.check_out_time || listing.meta?.default_check_out_time || listing.meta?.check_out_time || '',
+        business_check_in_time: listing.business_check_in_time || listing.meta?.business_check_in_time || '',
+        business_check_out_time: listing.business_check_out_time || listing.meta?.business_check_out_time || '',
+        weekend_check_in_time: listing.weekend_check_in_time || listing.meta?.weekend_check_in_time || '',
+        weekend_check_out_time: listing.weekend_check_out_time || listing.meta?.weekend_check_out_time || '',
+        // Location Details
+        exact_location: listing.exact_location || listing.meta?.exact_location || '',
+        listing_familiar_location: listing.listing_familiar_location || listing.meta?.listing_familiar_location || '',
+        // Video and Social
+        listing_video: listing.listing_video || listing.meta?.listing_video || '',
+        listing_social_url: listing.listing_social_url || listing.meta?.listing_social_url || '',
+        // Gallery
+        listing_gallery: normalizedGallery || [],
+        // Listing Rules
+        listing_rule: listing.listing_rule || listing.meta?.listing_rule || '',
+        // Admin Details
+        admin_blocked_days: listing.admin_blocked_days || listing.meta?.admin_blocked_days || '',
+        host_blocked_days: listing.host_blocked_days || listing.meta?.host_blocked_days || '',
+        listing_minimum_stays: listing.listing_minimum_stays || listing.meta?.listing_minimum_stays || '',
+        // Taxonomies
         listing_location: listing.listing_location || [],
         listing_region: listing.listing_region || [],
         listing_category: listing.listing_category || [],
         listing_size: listing.listing_size || [],
         listing_aminities: listing.listing_aminity || listing.listing_aminities || [],
-        listing_social_url: listing.listing_social_url || listing.meta?.listing_social_url || '',
-        listing_video: listing.listing_video || listing.meta?.listing_video || '',
-        listing_familiar_location: listing.listing_familiar_location || listing.meta?.listing_familiar_location || '',
-        room_number: listing.room_number || listing.meta?.room_number || '',
-        listing_bed_number: listing.listing_bed_number || listing.meta?.listing_bed_number || '',
-        guest_max_number: listing.guest_max_number || listing.meta?.guest_max_number || '',
-        check_in_time: listing.check_in_time || listing.meta?.check_in_time || '',
-        check_out_time: listing.check_out_time || listing.meta?.check_out_time || '',
-        listing_gallery: normalizedGallery || [],
+        listing_period_type: listing.listing_period_type || listing.renting_period_type || [],
+        // Location fields
         parent_location: parentLocation,
         child_location: childLocation,
       };
@@ -830,6 +1523,165 @@ const ListingForm = () => {
       }));
     }
   };
+
+  // Get period sort order (for automatic sorting)
+  const getPeriodOrder = (period) => {
+    const orderMap = {
+      'daily': 1,
+      'weekly': 2,
+      'fortnightly': 3,
+      'monthly': 4,
+      'annually': 5,
+    };
+    return orderMap[period] || 99;
+  };
+
+  // Sort price rows by period order
+  const sortPriceRows = (rows) => {
+    return [...rows].sort((a, b) => {
+      return getPeriodOrder(a.period) - getPeriodOrder(b.period);
+    });
+  };
+
+  // Price rows management
+  const addPriceRow = () => {
+    // Check if all periods are already selected
+    const allPeriods = ['daily', 'weekly', 'fortnightly', 'monthly', 'annually'];
+    const selectedPeriods = priceRows.map(r => r.period);
+    const availablePeriods = allPeriods.filter(p => !selectedPeriods.includes(p));
+    
+    // Don't add if no periods available
+    if (availablePeriods.length === 0) {
+      return;
+    }
+    
+    const newId = Math.max(...priceRows.map(r => r.id), 0) + 1;
+    // Default to first available period
+    const defaultPeriod = availablePeriods[0];
+    const newRows = [...priceRows, { id: newId, period: defaultPeriod, price: '' }];
+    // Auto-sort after adding
+    setPriceRows(sortPriceRows(newRows));
+  };
+
+  // Check if we can add more price rows (all periods not yet selected)
+  const canAddMorePriceRows = () => {
+    const allPeriods = ['daily', 'weekly', 'fortnightly', 'monthly', 'annually'];
+    const selectedPeriods = priceRows.map(r => r.period);
+    const availablePeriods = allPeriods.filter(p => !selectedPeriods.includes(p));
+    return availablePeriods.length > 0;
+  };
+
+  const removePriceRow = (id) => {
+    // Never allow removing the daily row
+    const rowToRemove = priceRows.find(r => r.id === id);
+    if (rowToRemove && rowToRemove.period === 'daily') {
+      return; // Don't remove daily
+    }
+    if (priceRows.length > 1) {
+      setPriceRows(priceRows.filter(row => row.id !== id));
+    }
+  };
+
+  const updatePriceRow = (id, field, value) => {
+    // Prevent changing daily period to something else
+    if (field === 'period' && value !== 'daily') {
+      const row = priceRows.find(r => r.id === id);
+      if (row && row.period === 'daily') {
+        return; // Don't allow changing daily period
+      }
+      // Prevent selecting a period that's already selected in another row
+      const isPeriodAlreadyUsed = priceRows.some(r => r.id !== id && r.period === value);
+      if (isPeriodAlreadyUsed) {
+        return; // Don't allow duplicate periods
+      }
+    }
+    const updatedRows = priceRows.map(row => 
+      row.id === id ? { ...row, [field]: value } : row
+    );
+    // Auto-sort after updating period
+    if (field === 'period') {
+      setPriceRows(sortPriceRows(updatedRows));
+    } else {
+      setPriceRows(updatedRows);
+    }
+  };
+
+  // Get available periods for a specific row (exclude already selected ones)
+  const getAvailablePeriods = (rowId) => {
+    const selectedPeriods = priceRows.filter(r => r.id !== rowId).map(r => r.period);
+    const allPeriods = [
+      { value: 'daily', label: 'Daily' },
+      { value: 'weekly', label: 'Weekly' },
+      { value: 'fortnightly', label: 'Fortnightly' },
+      { value: 'monthly', label: 'Monthly' },
+      { value: 'annually', label: 'Annually' },
+    ];
+    return allPeriods.filter(p => !selectedPeriods.includes(p.value));
+  };
+
+  // Sync price rows to formData
+  useEffect(() => {
+    const priceData = {
+      listing_price_general: '',
+      listing_price_weekly: '',
+      listing_price_fortnightly: '',
+      listing_price_monthly: '',
+      listing_price_annually: '',
+    };
+
+    priceRows.forEach(row => {
+      const fieldMap = {
+        'daily': 'listing_price_general',
+        'weekly': 'listing_price_weekly',
+        'fortnightly': 'listing_price_fortnightly',
+        'monthly': 'listing_price_monthly',
+        'annually': 'listing_price_annually',
+      };
+      const fieldName = fieldMap[row.period];
+      if (fieldName) {
+        priceData[fieldName] = row.price;
+      }
+    });
+
+    setFormData(prev => ({ ...prev, ...priceData }));
+  }, [priceRows]);
+
+  // Initialize price rows from formData when editing (only once when listing is loaded)
+  const [priceRowsInitialized, setPriceRowsInitialized] = useState(false);
+  
+  useEffect(() => {
+    if (isEdit && !priceRowsInitialized && formData.listing_price_general !== undefined) {
+      const rows = [];
+      let rowId = 1;
+
+      // Always add daily first (required)
+      const dailyPrice = formData.listing_price_general || '';
+      rows.push({ id: rowId++, period: 'daily', price: String(dailyPrice) });
+
+      // Map other formData prices to rows (excluding daily which is already added)
+      const periodMap = [
+        { period: 'weekly', field: 'listing_price_weekly' },
+        { period: 'fortnightly', field: 'listing_price_fortnightly' },
+        { period: 'monthly', field: 'listing_price_monthly' },
+        { period: 'annually', field: 'listing_price_annually' },
+      ];
+
+      periodMap.forEach(({ period, field }) => {
+        const price = formData[field];
+        if (price && price !== '' && price !== null) {
+          rows.push({ id: rowId++, period, price: String(price) });
+        }
+      });
+
+      // Sort rows by period order
+      setPriceRows(sortPriceRows(rows));
+      setPriceRowsInitialized(true);
+    } else if (!isEdit && !priceRowsInitialized) {
+      // For new listings, always start with daily row
+      setPriceRows([{ id: 1, period: 'daily', price: '' }]);
+      setPriceRowsInitialized(true);
+    }
+  }, [isEdit, priceRowsInitialized, formData.listing_price_general, formData.listing_price_weekly, formData.listing_price_fortnightly, formData.listing_price_monthly, formData.listing_price_annually]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -883,31 +1735,89 @@ const ListingForm = () => {
         title: formData.listing_name || '',
         content: formData.listing_description || '',
         status: 'publish',
-        // Duplicate key fields at top-level for Pods CPT mappings
+        // Basic Details
         listing_name: formData.listing_name || '',
         listing_description: formData.listing_description || '',
-        listing_price: formData.listing_price || '',
-        listing_social_url: formData.listing_social_url || '',
-        listing_video: formData.listing_video || '',
-        listing_familiar_location: formData.listing_familiar_location || '',
+        // Property Details
         room_number: formData.room_number || '',
         listing_bed_number: formData.listing_bed_number || '',
         guest_max_number: formData.guest_max_number || '',
-        check_in_time: formData.check_in_time || '',
-        check_out_time: formData.check_out_time || '',
+        // Price Details
+        listing_price_general: formData.listing_price_general || '',
+        listing_price_weekly: formData.listing_price_weekly || '',
+        listing_price_fortnightly: formData.listing_price_fortnightly || '',
+        listing_price_monthly: formData.listing_price_monthly || '',
+        listing_price_annually: formData.listing_price_annually || '',
+        // Discount Details
+        discount_number_night_1: formData.discount_number_night_1 || '',
+        discount_percent_night_1: formData.discount_percent_night_1 || '',
+        discount_number_night_2: formData.discount_number_night_2 || '',
+        discount_percent_night_2: formData.discount_percent_night_2 || '',
+        discount_number_night_3: formData.discount_number_night_3 || '',
+        discount_percent_night_3: formData.discount_percent_night_3 || '',
+        discount_number_guest_1: formData.discount_number_guest_1 || '',
+        discount_percent_guest_1: formData.discount_percent_guest_1 || '',
+        discount_number_guest_2: formData.discount_number_guest_2 || '',
+        discount_percent_guest_2: formData.discount_percent_guest_2 || '',
+        discount_number_guest_3: formData.discount_number_guest_3 || '',
+        discount_percent_guest_3: formData.discount_percent_guest_3 || '',
+        // Time Details
+        default_check_in_time: formData.default_check_in_time || '',
+        default_check_out_time: formData.default_check_out_time || '',
+        business_check_in_time: formData.business_check_in_time || '',
+        business_check_out_time: formData.business_check_out_time || '',
+        weekend_check_in_time: formData.weekend_check_in_time || '',
+        weekend_check_out_time: formData.weekend_check_out_time || '',
+        // Location Details
+        exact_location: formData.exact_location || '',
+        listing_familiar_location: formData.listing_familiar_location || '',
+        // Video and Social
+        listing_video: formData.listing_video || '',
+        listing_social_url: formData.listing_social_url || '',
+        // Listing Rules
+        listing_rule: formData.listing_rule || '',
+        // Admin Details
+        admin_blocked_days: formData.admin_blocked_days || '',
+        host_blocked_days: formData.host_blocked_days || '',
+        listing_minimum_stays: formData.listing_minimum_stays || '',
         // Also persist in meta for setups that read from meta (Pods/ACF variations)
         meta: {
           listing_name: formData.listing_name || '',
           listing_description: formData.listing_description || '',
-          listing_price: formData.listing_price || '',
-          listing_social_url: formData.listing_social_url || '',
-          listing_video: formData.listing_video || '',
-          listing_familiar_location: formData.listing_familiar_location || '',
           room_number: formData.room_number || '',
           listing_bed_number: formData.listing_bed_number || '',
           guest_max_number: formData.guest_max_number || '',
-          check_in_time: formData.check_in_time || '',
-          check_out_time: formData.check_out_time || '',
+          listing_price_general: formData.listing_price_general || '',
+          listing_price_weekly: formData.listing_price_weekly || '',
+          listing_price_fortnightly: formData.listing_price_fortnightly || '',
+          listing_price_monthly: formData.listing_price_monthly || '',
+          listing_price_annually: formData.listing_price_annually || '',
+          discount_number_night_1: formData.discount_number_night_1 || '',
+          discount_percent_night_1: formData.discount_percent_night_1 || '',
+          discount_number_night_2: formData.discount_number_night_2 || '',
+          discount_percent_night_2: formData.discount_percent_night_2 || '',
+          discount_number_night_3: formData.discount_number_night_3 || '',
+          discount_percent_night_3: formData.discount_percent_night_3 || '',
+          discount_number_guest_1: formData.discount_number_guest_1 || '',
+          discount_percent_guest_1: formData.discount_percent_guest_1 || '',
+          discount_number_guest_2: formData.discount_number_guest_2 || '',
+          discount_percent_guest_2: formData.discount_percent_guest_2 || '',
+          discount_number_guest_3: formData.discount_number_guest_3 || '',
+          discount_percent_guest_3: formData.discount_percent_guest_3 || '',
+          default_check_in_time: formData.default_check_in_time || '',
+          default_check_out_time: formData.default_check_out_time || '',
+          business_check_in_time: formData.business_check_in_time || '',
+          business_check_out_time: formData.business_check_out_time || '',
+          weekend_check_in_time: formData.weekend_check_in_time || '',
+          weekend_check_out_time: formData.weekend_check_out_time || '',
+          exact_location: formData.exact_location || '',
+          listing_familiar_location: formData.listing_familiar_location || '',
+          listing_video: formData.listing_video || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_rule: formData.listing_rule || '',
+          admin_blocked_days: formData.admin_blocked_days || '',
+          host_blocked_days: formData.host_blocked_days || '',
+          listing_minimum_stays: formData.listing_minimum_stays || '',
           listing_gallery: galleryImageIds,
         },
         // Pods relationship field: array of attachment IDs (drives the backend "Зурагүүд" field)
@@ -918,6 +1828,8 @@ const ListingForm = () => {
         listing_location: locationToSave,
         listing_region: locationToSave,
         listing_aminities: formatTaxonomy(formData.listing_aminities),
+        listing_period_type: formatTaxonomy(formData.listing_period_type),
+        renting_period_type: formatTaxonomy(formData.listing_period_type),
       };
 
       let savedListing;
@@ -941,20 +1853,46 @@ const ListingForm = () => {
         await updatePodsItemFields('touresm-listing', Number(listingId), {
           listing_name: formData.listing_name || '',
           listing_description: formData.listing_description || '',
-          listing_price: formData.listing_price || '',
-          listing_social_url: formData.listing_social_url || '',
-          listing_video: formData.listing_video || '',
-          listing_familiar_location: formData.listing_familiar_location || '',
           room_number: formData.room_number || '',
           listing_bed_number: formData.listing_bed_number || '',
           guest_max_number: formData.guest_max_number || '',
-          check_in_time: formData.check_in_time || '',
-          check_out_time: formData.check_out_time || '',
+          listing_price_general: formData.listing_price_general || '',
+          listing_price_weekly: formData.listing_price_weekly || '',
+          listing_price_fortnightly: formData.listing_price_fortnightly || '',
+          listing_price_monthly: formData.listing_price_monthly || '',
+          listing_price_annually: formData.listing_price_annually || '',
+          discount_number_night_1: formData.discount_number_night_1 || '',
+          discount_percent_night_1: formData.discount_percent_night_1 || '',
+          discount_number_night_2: formData.discount_number_night_2 || '',
+          discount_percent_night_2: formData.discount_percent_night_2 || '',
+          discount_number_night_3: formData.discount_number_night_3 || '',
+          discount_percent_night_3: formData.discount_percent_night_3 || '',
+          discount_number_guest_1: formData.discount_number_guest_1 || '',
+          discount_percent_guest_1: formData.discount_percent_guest_1 || '',
+          discount_number_guest_2: formData.discount_number_guest_2 || '',
+          discount_percent_guest_2: formData.discount_percent_guest_2 || '',
+          discount_number_guest_3: formData.discount_number_guest_3 || '',
+          discount_percent_guest_3: formData.discount_percent_guest_3 || '',
+          default_check_in_time: formData.default_check_in_time || '',
+          default_check_out_time: formData.default_check_out_time || '',
+          business_check_in_time: formData.business_check_in_time || '',
+          business_check_out_time: formData.business_check_out_time || '',
+          weekend_check_in_time: formData.weekend_check_in_time || '',
+          weekend_check_out_time: formData.weekend_check_out_time || '',
+          exact_location: formData.exact_location || '',
+          listing_familiar_location: formData.listing_familiar_location || '',
+          listing_video: formData.listing_video || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_rule: formData.listing_rule || '',
+          admin_blocked_days: formData.admin_blocked_days || '',
+          host_blocked_days: formData.host_blocked_days || '',
+          listing_minimum_stays: formData.listing_minimum_stays || '',
           listing_gallery: galleryImageIds,
           listing_aminities: formatTaxonomy(formData.listing_aminities),
           listing_location: locationToSave,
           listing_region: locationToSave,
           listing_size: formatTaxonomy(formData.listing_size),
+          listing_period_type: formatTaxonomy(formData.listing_period_type),
         });
       } catch (podsErr) {
         // silent; other methods below will still try to persist
@@ -965,14 +1903,40 @@ const ListingForm = () => {
         const allMeta = {
           listing_name: formData.listing_name || '',
           listing_description: formData.listing_description || '',
-          listing_price: formData.listing_price || '',
-          listing_social_url: formData.listing_social_url || '',
-          listing_video: formData.listing_video || '',
           room_number: formData.room_number || '',
           listing_bed_number: formData.listing_bed_number || '',
           guest_max_number: formData.guest_max_number || '',
-          check_in_time: formData.check_in_time || '',
-          check_out_time: formData.check_out_time || '',
+          listing_price_general: formData.listing_price_general || '',
+          listing_price_weekly: formData.listing_price_weekly || '',
+          listing_price_fortnightly: formData.listing_price_fortnightly || '',
+          listing_price_monthly: formData.listing_price_monthly || '',
+          listing_price_annually: formData.listing_price_annually || '',
+          discount_number_night_1: formData.discount_number_night_1 || '',
+          discount_percent_night_1: formData.discount_percent_night_1 || '',
+          discount_number_night_2: formData.discount_number_night_2 || '',
+          discount_percent_night_2: formData.discount_percent_night_2 || '',
+          discount_number_night_3: formData.discount_number_night_3 || '',
+          discount_percent_night_3: formData.discount_percent_night_3 || '',
+          discount_number_guest_1: formData.discount_number_guest_1 || '',
+          discount_percent_guest_1: formData.discount_percent_guest_1 || '',
+          discount_number_guest_2: formData.discount_number_guest_2 || '',
+          discount_percent_guest_2: formData.discount_percent_guest_2 || '',
+          discount_number_guest_3: formData.discount_number_guest_3 || '',
+          discount_percent_guest_3: formData.discount_percent_guest_3 || '',
+          default_check_in_time: formData.default_check_in_time || '',
+          default_check_out_time: formData.default_check_out_time || '',
+          business_check_in_time: formData.business_check_in_time || '',
+          business_check_out_time: formData.business_check_out_time || '',
+          weekend_check_in_time: formData.weekend_check_in_time || '',
+          weekend_check_out_time: formData.weekend_check_out_time || '',
+          exact_location: formData.exact_location || '',
+          listing_familiar_location: formData.listing_familiar_location || '',
+          listing_video: formData.listing_video || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_rule: formData.listing_rule || '',
+          admin_blocked_days: formData.admin_blocked_days || '',
+          host_blocked_days: formData.host_blocked_days || '',
+          listing_minimum_stays: formData.listing_minimum_stays || '',
           listing_gallery: galleryImageIds,
         };
         await updateListing(listingId, {
@@ -981,20 +1945,47 @@ const ListingForm = () => {
           meta: allMeta,
           listing_name: formData.listing_name || '',
           listing_description: formData.listing_description || '',
-          listing_price: formData.listing_price || '',
-          listing_social_url: formData.listing_social_url || '',
-          listing_video: formData.listing_video || '',
           room_number: formData.room_number || '',
           listing_bed_number: formData.listing_bed_number || '',
           guest_max_number: formData.guest_max_number || '',
-          check_in_time: formData.check_in_time || '',
-          check_out_time: formData.check_out_time || '',
+          listing_price_general: formData.listing_price_general || '',
+          listing_price_weekly: formData.listing_price_weekly || '',
+          listing_price_fortnightly: formData.listing_price_fortnightly || '',
+          listing_price_monthly: formData.listing_price_monthly || '',
+          listing_price_annually: formData.listing_price_annually || '',
+          discount_number_night_1: formData.discount_number_night_1 || '',
+          discount_percent_night_1: formData.discount_percent_night_1 || '',
+          discount_number_night_2: formData.discount_number_night_2 || '',
+          discount_percent_night_2: formData.discount_percent_night_2 || '',
+          discount_number_night_3: formData.discount_number_night_3 || '',
+          discount_percent_night_3: formData.discount_percent_night_3 || '',
+          discount_number_guest_1: formData.discount_number_guest_1 || '',
+          discount_percent_guest_1: formData.discount_percent_guest_1 || '',
+          discount_number_guest_2: formData.discount_number_guest_2 || '',
+          discount_percent_guest_2: formData.discount_percent_guest_2 || '',
+          discount_number_guest_3: formData.discount_number_guest_3 || '',
+          discount_percent_guest_3: formData.discount_percent_guest_3 || '',
+          default_check_in_time: formData.default_check_in_time || '',
+          default_check_out_time: formData.default_check_out_time || '',
+          business_check_in_time: formData.business_check_in_time || '',
+          business_check_out_time: formData.business_check_out_time || '',
+          weekend_check_in_time: formData.weekend_check_in_time || '',
+          weekend_check_out_time: formData.weekend_check_out_time || '',
+          exact_location: formData.exact_location || '',
+          listing_familiar_location: formData.listing_familiar_location || '',
+          listing_video: formData.listing_video || '',
+          listing_social_url: formData.listing_social_url || '',
+          listing_rule: formData.listing_rule || '',
+          admin_blocked_days: formData.admin_blocked_days || '',
+          host_blocked_days: formData.host_blocked_days || '',
+          listing_minimum_stays: formData.listing_minimum_stays || '',
           listing_gallery: galleryImageIds,
           listing_category: formatTaxonomy(formData.listing_category),
           listing_size: formatTaxonomy(formData.listing_size),
           listing_location: locationToSave,
           listing_region: locationToSave,
           listing_aminities: formatTaxonomy(formData.listing_aminities),
+          listing_period_type: formatTaxonomy(formData.listing_period_type),
         });
       } catch (_forceErr) {
         // ignore; verification below will catch issues
@@ -1104,9 +2095,9 @@ const ListingForm = () => {
       )}
 
       <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6 space-y-6">
-        {/* Basic Information */}
+        {/* Basic Details */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Basic Information</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Basic Details</h2>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1134,28 +2125,393 @@ const ListingForm = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
               />
             </div>
+          </div>
+            </div>
 
+        {/* Property Details */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Property Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Price per Night *
+                Rooms
               </label>
               <input
                 type="number"
-                name="listing_price"
-                value={formData.listing_price}
+                name="room_number"
+                value={formData.room_number}
                 onChange={handleChange}
-                required
                 min="0"
-                step="0.01"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Beds
+              </label>
+              <input
+                type="number"
+                name="listing_bed_number"
+                value={formData.listing_bed_number}
+                onChange={handleChange}
+                min="0"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Max Guests
+              </label>
+              <input
+                type="number"
+                name="guest_max_number"
+                value={formData.guest_max_number}
+                onChange={handleChange}
+                min="1"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
               />
             </div>
           </div>
         </div>
 
-        {/* Taxonomies */}
+        {/* Price Details */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Categories & Details</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Price Details</h2>
+          
+          {/* Period Type Selection */}
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Rental Period Type
+            </label>
+            <div className="flex flex-wrap gap-4">
+              {taxonomies.periodTypes.map((periodType) => {
+                const periodTypeId = periodType.id || periodType.term_id;
+                const isSelected = isPeriodTypeSelected(periodTypeId);
+                return (
+                  <label
+                    key={periodTypeId}
+                    className="flex items-center p-3 bg-white border-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-50"
+                    style={{
+                      borderColor: isSelected ? '#2563eb' : '#e5e7eb',
+                      backgroundColor: isSelected ? '#eff6ff' : 'white',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handlePeriodTypeToggle(periodTypeId)}
+                      className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                    />
+                    <span className="ml-3 text-sm font-medium text-gray-900">
+                      {periodType.name}
+                    </span>
+                  </label>
+                );
+              })}
+              {taxonomies.periodTypes.length === 0 && (
+                <p className="text-sm text-gray-500">No period types available. Please add them in WordPress.</p>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Select one or both period types.</p>
+          </div>
+
+          {/* Dynamic Price Rows */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-12 gap-4 items-end mb-2">
+              <div className="col-span-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
+              </div>
+              <div className="col-span-9">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
+              </div>
+            </div>
+
+            {priceRows.map((row, index) => {
+              const isDaily = row.period === 'daily';
+              const availablePeriods = getAvailablePeriods(row.id);
+              const canRemove = !isDaily && priceRows.length > 1;
+              const isLastRow = index === priceRows.length - 1;
+              const canAddMore = canAddMorePriceRows();
+
+              return (
+                <div key={row.id} className="grid grid-cols-12 gap-4 items-end">
+                  <div className="col-span-3">
+                    <select
+                      value={row.period}
+                      onChange={(e) => updatePriceRow(row.id, 'period', e.target.value)}
+                      disabled={isDaily}
+                      className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+                        isDaily ? 'bg-gray-100 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {availablePeriods.map(period => (
+                        <option key={period.value} value={period.value}>
+                          {period.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="col-span-8">
+                    <input
+                      type="number"
+                      value={row.price}
+                      onChange={(e) => updatePriceRow(row.id, 'price', e.target.value)}
+                min="0"
+                step="0.01"
+                      placeholder="Enter price"
+                      required={isDaily}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+              />
+            </div>
+                  <div className="col-span-1 flex gap-1 justify-end">
+                    {canRemove && (
+                      <button
+                        type="button"
+                        onClick={() => removePriceRow(row.id)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                        title="Remove"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10" />
+                        </svg>
+                      </button>
+                    )}
+                    {isLastRow && canAddMore && (
+                      <button
+                        type="button"
+                        onClick={addPriceRow}
+                        className="p-1.5 text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                        title="Add more"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Discount Details */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Discount Details</h2>
+            {/* Toggle Switch */}
+            <label className="flex items-center cursor-pointer">
+              <span className={`mr-3 text-sm font-medium ${discountEnabled ? 'text-gray-900' : 'text-gray-500'}`}>
+                {discountEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  checked={discountEnabled}
+                  onChange={(e) => setDiscountEnabled(e.target.checked)}
+                  className="sr-only"
+                />
+                <div className={`block w-14 h-8 rounded-full transition-colors ${
+                  discountEnabled ? 'bg-primary-600' : 'bg-gray-300'
+                }`}></div>
+                <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${
+                  discountEnabled ? 'transform translate-x-6' : ''
+                }`}></div>
+              </div>
+            </label>
+          </div>
+          
+          {discountEnabled ? (
+            <div className="space-y-8">
+              {/* Night Discounts */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-md font-medium text-gray-800">Night Discounts</h3>
+                  <span className="text-xs text-gray-500">Max 3 variants</span>
+                </div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-12 gap-3 text-sm text-gray-700">
+                    <div className="col-span-4">Condition</div>
+                    <div className="col-span-3">More (nights)</div>
+                    <div className="col-span-5">Discount (%)</div>
+                  </div>
+                  {nightDiscountRows.map(renderNightDiscountRow)}
+                </div>
+              </div>
+
+              {/* Guest Discounts */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-md font-medium text-gray-800">Guest Discounts</h3>
+                  <span className="text-xs text-gray-500">Max 3 variants</span>
+                </div>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-12 gap-3 text-sm text-gray-700">
+                    <div className="col-span-4">Condition</div>
+                    <div className="col-span-3">Less (guests)</div>
+                    <div className="col-span-5">Discount (%)</div>
+                  </div>
+                  {guestDiscountRows.map(renderGuestDiscountRow)}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-center">
+              <p className="text-sm text-gray-500">Discounts are disabled. Enable the toggle above to add discount options.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Time Details */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Time Details</h2>
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-md font-medium text-gray-800 mb-3">Default Times</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Default Check-in Time
+                  </label>
+                  <input
+                    type="time"
+                    name="default_check_in_time"
+                    value={formData.default_check_in_time}
+                    onChange={handleChange}
+                    disabled={!discountEnabled}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Default Check-out Time
+                  </label>
+                  <input
+                    type="time"
+                    name="default_check_out_time"
+                    value={formData.default_check_out_time}
+                    onChange={handleChange}
+                    disabled={!discountEnabled}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-md font-medium text-gray-800 mb-3">Business Times</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Business Check-in Time
+                  </label>
+                  <input
+                    type="time"
+                    name="business_check_in_time"
+                    value={formData.business_check_in_time}
+                    onChange={handleChange}
+                    disabled={!discountEnabled}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Business Check-out Time
+                  </label>
+                  <input
+                    type="time"
+                    name="business_check_out_time"
+                    value={formData.business_check_out_time}
+                    onChange={handleChange}
+                    disabled={!discountEnabled}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-md font-medium text-gray-800 mb-3">Weekend Times</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Weekend Check-in Time
+                  </label>
+                  <input
+                    type="time"
+                    name="weekend_check_in_time"
+                    value={formData.weekend_check_in_time}
+                    onChange={handleChange}
+                    disabled={!discountEnabled}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Weekend Check-out Time
+                  </label>
+                  <input
+                    type="time"
+                    name="weekend_check_out_time"
+                    value={formData.weekend_check_out_time}
+                    onChange={handleChange}
+                    disabled={!discountEnabled}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
+                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
+                    }`}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Location Details */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Location Details</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Exact Location
+              </label>
+              <input
+                type="text"
+                name="exact_location"
+                value={formData.exact_location}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Enter exact location"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Familiar Location
+              </label>
+              <input
+                type="text"
+                name="listing_familiar_location"
+                value={formData.listing_familiar_location}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="e.g., Near City Center"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Taxonomies - Categories, Size, Location */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Categories & Location</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1241,68 +2597,6 @@ const ListingForm = () => {
                 })}
               </select>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Familiar Location (optional)
-              </label>
-              <input
-                type="text"
-                name="listing_familiar_location"
-                value={formData.listing_familiar_location || ''}
-                onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-                placeholder="e.g., Near City Center"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Property Details */}
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Property Details</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Rooms
-              </label>
-              <input
-                type="number"
-                name="room_number"
-                value={formData.room_number}
-                onChange={handleChange}
-                min="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Beds
-              </label>
-              <input
-                type="number"
-                name="listing_bed_number"
-                value={formData.listing_bed_number}
-                onChange={handleChange}
-                min="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Max Guests
-              </label>
-              <input
-                type="number"
-                name="guest_max_number"
-                value={formData.guest_max_number}
-                onChange={handleChange}
-                min="1"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-              />
-            </div>
           </div>
         </div>
 
@@ -1368,41 +2662,43 @@ const ListingForm = () => {
           </div>
         </div>
 
-        {/* Check-in/Check-out Times */}
+        {/* Video and Social */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Check-in & Check-out</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Video and Social</h2>
+          <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Check-in Time
+                Video URL
               </label>
               <input
-                type="time"
-                name="check_in_time"
-                value={formData.check_in_time}
+                type="url"
+                name="listing_video"
+                value={formData.listing_video}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="https://..."
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Check-out Time
+                Social URL
               </label>
               <input
-                type="time"
-                name="check_out_time"
-                value={formData.check_out_time}
+                type="url"
+                name="listing_social_url"
+                value={formData.listing_social_url}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="https://..."
               />
             </div>
           </div>
         </div>
 
-        {/* Gallery Images */}
+        {/* Gallery */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Gallery Images</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Gallery</h2>
           <ImageGalleryUpload
             images={formData.listing_gallery}
             onChange={(newImages) => {
@@ -1416,34 +2712,69 @@ const ListingForm = () => {
           />
         </div>
 
-        {/* URLs */}
+        {/* Listing Rules */}
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Links</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Listing Rules</h2>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Rules
+            </label>
+            <textarea
+              name="listing_rule"
+              value={formData.listing_rule}
+              onChange={handleChange}
+              rows={6}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+              placeholder="Enter listing rules and policies..."
+            />
+          </div>
+        </div>
+
+        {/* Admin Details */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Admin Details</h2>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Social URL
+                Minimum Stays
               </label>
               <input
-                type="url"
-                name="listing_social_url"
-                value={formData.listing_social_url}
+                type="number"
+                name="listing_minimum_stays"
+                value={formData.listing_minimum_stays}
                 onChange={handleChange}
+                min="0"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Minimum number of nights"
               />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Video URL
+                Admin Blocked Days
               </label>
               <input
-                type="url"
-                name="listing_video"
-                value={formData.listing_video}
+                type="text"
+                name="admin_blocked_days"
+                value={formData.admin_blocked_days}
                 onChange={handleChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Comma-separated dates (YYYY-MM-DD)"
               />
+              <p className="mt-1 text-xs text-gray-500">Enter dates in YYYY-MM-DD format, separated by commas</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Host Blocked Days
+              </label>
+              <input
+                type="text"
+                name="host_blocked_days"
+                value={formData.host_blocked_days}
+                onChange={handleChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                placeholder="Comma-separated dates (YYYY-MM-DD)"
+              />
+              <p className="mt-1 text-xs text-gray-500">Enter dates in YYYY-MM-DD format, separated by commas</p>
             </div>
           </div>
         </div>

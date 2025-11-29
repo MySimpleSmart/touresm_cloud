@@ -545,6 +545,9 @@ export const getAmenities = async () => {
 
 export const getSizes = () => getTaxonomyTerms('listing_size');
 
+// Fetch period types (renting_period_type)
+export const getPeriodTypes = () => getTaxonomyTerms('renting_period_type');
+
 // Bookings
 export const getBookings = async (params = {}) => {
   try {
