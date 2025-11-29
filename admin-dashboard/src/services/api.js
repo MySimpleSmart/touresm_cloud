@@ -2,6 +2,7 @@ import axios from 'axios';
 
 const API_BASE_URL = 'https://touresm.cloud/wp-json/wp/v2';
 const API_NONCE_URL = 'https://touresm.cloud/wp-json/wp/v2';
+const PODS_API_BASE_URL = 'https://touresm.cloud/wp-json';
 
 // Create axios instance
 const api = axios.create({
@@ -12,6 +13,15 @@ const api = axios.create({
   withCredentials: true, // Important for WordPress cookie-based auth
 });
 
+// Create separate axios instance for PODS endpoints (may be at root level)
+const podsApi = axios.create({
+  baseURL: PODS_API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  withCredentials: true,
+});
+
 // Helper function to get current user (needed in interceptor)
 const getCurrentUserForAuth = () => {
   const userStr = localStorage.getItem('admin_user');
@@ -19,47 +29,45 @@ const getCurrentUserForAuth = () => {
 };
 
 // Add request interceptor to include authentication
-api.interceptors.request.use(
-  (config) => {
-    // Don't override Content-Type for FormData (file uploads)
-    if (config.data instanceof FormData) {
-      delete config.headers['Content-Type'];
-    }
-    
-    // Try JWT token first
-    const jwtToken = localStorage.getItem('jwt_token');
-    if (jwtToken) {
-      config.headers['Authorization'] = `Bearer ${jwtToken}`;
-    }
-    
-    // If no JWT token, try Application Password (Basic Auth)
-    if (!jwtToken) {
-      const storedAuth = localStorage.getItem('wp_auth_credentials');
-      if (storedAuth) {
-        try {
-          const { username, password } = JSON.parse(storedAuth);
-          config.auth = {
-            username,
-            password,
-          };
-        } catch (e) {
-          // Ignore if credentials can't be parsed
-        }
+const requestInterceptor = (config) => {
+  // Don't override Content-Type for FormData (file uploads)
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
+  }
+  
+  // Try JWT token first
+  const jwtToken = localStorage.getItem('jwt_token');
+  if (jwtToken) {
+    config.headers['Authorization'] = `Bearer ${jwtToken}`;
+  }
+  
+  // If no JWT token, try Application Password (Basic Auth)
+  if (!jwtToken) {
+    const storedAuth = localStorage.getItem('wp_auth_credentials');
+    if (storedAuth) {
+      try {
+        const { username, password } = JSON.parse(storedAuth);
+        config.auth = {
+          username,
+          password,
+        };
+      } catch (e) {
+        // Ignore if credentials can't be parsed
       }
     }
-    
-    // Also try nonce for compatibility
-    const nonce = localStorage.getItem('wp_rest_nonce');
-    if (nonce) {
-      config.headers['X-WP-Nonce'] = nonce;
-    }
-    
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
   }
-);
+  
+  // Also try nonce for compatibility
+  const nonce = localStorage.getItem('wp_rest_nonce');
+  if (nonce) {
+    config.headers['X-WP-Nonce'] = nonce;
+  }
+  
+  return config;
+};
+
+api.interceptors.request.use(requestInterceptor);
+podsApi.interceptors.request.use(requestInterceptor);
 
 // Add response interceptor to handle token refresh if needed
 api.interceptors.response.use(
@@ -300,6 +308,105 @@ export const updateListing = async (id, data) => {
   }
 };
 
+// Listing Rules CRUD - Use /wp/v2/listing_rules directly (like touresm-listing)
+export const getListingRules = async (params = {}) => {
+  try {
+    const response = await api.get('/listing_rules', { params });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching listing rules:', error);
+    throw error;
+  }
+};
+
+export const getListingRule = async (id) => {
+  try {
+    const response = await api.get(`/listing_rules/${id}`, {
+      params: { context: 'edit' },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching listing rule:', error);
+    throw error;
+  }
+};
+
+export const createListingRule = async (data) => {
+  try {
+    const response = await api.post('/listing_rules', data);
+    return response.data;
+  } catch (error) {
+    console.error('Error creating listing rule:', error);
+    if (error.response) {
+      console.error('Error response status:', error.response.status);
+      console.error('Error response data:', error.response.data);
+    }
+    throw error;
+  }
+};
+
+export const updateListingRule = async (id, data) => {
+  try {
+    try {
+      const response = await api.put(`/listing_rules/${id}`, data);
+      return response.data;
+    } catch (putError) {
+      // Try POST if PUT fails
+      const response = await api.post(`/listing_rules/${id}`, data);
+      return response.data;
+    }
+  } catch (error) {
+    console.error('Error updating listing rule:', error);
+    if (error.response) {
+      console.error('Error response status:', error.response.status);
+      console.error('Error response data:', error.response.data);
+    }
+    throw error;
+  }
+};
+
+export const deleteListingRule = async (id) => {
+  try {
+    const response = await api.delete(`/listing_rules/${id}`, {
+      params: { force: true },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error deleting listing rule:', error);
+    if (error.response) {
+      console.error('Error response:', error.response.data);
+    }
+    throw error;
+  }
+};
+
+// Update listing rule meta fields (similar to updateListingMetaField)
+export const updateListingRuleMetaField = async (ruleId, metaKey, metaValue) => {
+  try {
+    // Try updating via POST with meta object
+    const response = await api.post(`/listing_rules/${ruleId}`, {
+      meta: {
+        [metaKey]: metaValue,
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Error updating listing rule meta field ${metaKey}:`, error);
+    // Try PUT as fallback
+    try {
+      const response = await api.put(`/listing_rules/${ruleId}`, {
+        meta: {
+          [metaKey]: metaValue,
+        },
+      });
+      return response.data;
+    } catch (putError) {
+      console.error(`Error updating listing rule meta field ${metaKey} via PUT:`, putError);
+      throw putError;
+    }
+  }
+};
+
 export const deleteListing = async (id) => {
   try {
     const response = await api.delete(`/touresm-listing/${id}`, {
@@ -444,10 +551,44 @@ export const updatePodsItemFields = async (podSlug, itemId, fields) => {
   try {
     const podsBase = API_BASE_URL.replace('/wp/v2', '/pods/v1');
     const url = `${podsBase}/items/${podSlug}/${itemId}`;
-    const response = await axios.post(url, { fields }, { withCredentials: true });
+    
+    // Create axios instance with same auth as main api
+    const podsApi = axios.create({
+      baseURL: podsBase,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      withCredentials: true,
+    });
+    
+    // Add authentication
+    const jwtToken = localStorage.getItem('jwt_token');
+    if (jwtToken) {
+      podsApi.defaults.headers.common['Authorization'] = `Bearer ${jwtToken}`;
+    } else {
+      const storedAuth = localStorage.getItem('wp_auth_credentials');
+      if (storedAuth) {
+        try {
+          const { username, password } = JSON.parse(storedAuth);
+          podsApi.defaults.auth = { username, password };
+        } catch (e) {
+          // Ignore
+        }
+      }
+    }
+    
+    const response = await podsApi.post(`/items/${podSlug}/${itemId}`, { fields });
     return response.data;
   } catch (error) {
+    // 404 is expected if PODS REST API is not enabled - silently fail and let caller handle fallback
+    if (error.response?.status === 404) {
+      throw error; // Re-throw for caller to handle fallback
+    }
+    // Only log unexpected errors
     console.error('Error updating Pods fields:', error);
+    if (error.response) {
+      console.error('PODS error response:', error.response.data);
+    }
     throw error;
   }
 };

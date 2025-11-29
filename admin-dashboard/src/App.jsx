@@ -4,6 +4,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Listings from './pages/Listings';
 import ListingForm from './pages/ListingForm';
+import ListingRules from './pages/ListingRules';
+import ListingRuleForm from './pages/ListingRuleForm';
 import BookingCalendar from './pages/BookingCalendar';
 import BookingTable from './pages/BookingConfirmationTable';
 import AllHosts from './pages/AllHosts';
@@ -80,6 +82,42 @@ function App() {
             authenticated ? (
               <Layout>
                 <ListingForm />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/listings/rules"
+          element={
+            authenticated ? (
+              <Layout>
+                <ListingRules />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/listings/rules/new"
+          element={
+            authenticated ? (
+              <Layout>
+                <ListingRuleForm />
+              </Layout>
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/listings/rules/edit/:id"
+          element={
+            authenticated ? (
+              <Layout>
+                <ListingRuleForm />
               </Layout>
             ) : (
               <Navigate to="/login" replace />

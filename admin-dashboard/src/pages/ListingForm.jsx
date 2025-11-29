@@ -13,6 +13,8 @@ import {
   getMediaByParent,
   updateMediaItem,
   updateListingMetaField,
+  getListingRules,
+  getListingRule,
 } from '../services/api';
 import { updatePodsItemFields } from '../services/api';
 import ImageGalleryUpload from '../components/ImageGalleryUpload';
@@ -237,8 +239,8 @@ const ListingForm = () => {
     discount_number_guest_3: '',
     discount_percent_guest_3: '',
     // Time Details
-    default_check_in_time: '',
-    default_check_out_time: '',
+    default_check_in_time: '14:00',
+    default_check_out_time: '11:00',
     business_check_in_time: '',
     business_check_out_time: '',
     weekend_check_in_time: '',
@@ -253,10 +255,13 @@ const ListingForm = () => {
     listing_gallery: [],
     // Listing Rules
     listing_rule: '',
+    listing_rule_mode: 'custom', // 'existing' or 'custom'
+    selected_listing_rule_id: '',
     // Admin Details
     admin_blocked_days: '',
     host_blocked_days: '',
     listing_minimum_stays: '',
+    featured_listing: '',
     // Taxonomies (keep existing)
     listing_location: [],
     listing_region: [],
@@ -278,6 +283,8 @@ const ListingForm = () => {
     periodTypes: [],
   });
 
+  const [availableListingRules, setAvailableListingRules] = useState([]);
+
   // Price rows state - dynamic list of period-price pairs
   const [priceRows, setPriceRows] = useState([
     { id: 1, period: 'daily', price: '' }
@@ -285,6 +292,116 @@ const ListingForm = () => {
 
   // Discount toggle state
   const [discountEnabled, setDiscountEnabled] = useState(false);
+
+  // Time Details state - track time rows (similar to discount rows)
+  const [timeRows, setTimeRows] = useState([
+    { id: 1, type: 'default', checkIn: '14:00', checkOut: '11:00' },
+  ]);
+
+  // Initialize time rows when loading listing
+  useEffect(() => {
+    if (isEdit && formData.business_check_in_time !== undefined) {
+      const rows = [];
+      let idCounter = 1;
+      
+      // Add business days if exists
+      if (formData.business_check_in_time || formData.business_check_out_time) {
+        rows.push({
+          id: idCounter++,
+          type: 'business',
+          checkIn: formData.business_check_in_time || '',
+          checkOut: formData.business_check_out_time || '',
+        });
+      } else {
+        // Add default if no business
+        rows.push({
+          id: idCounter++,
+          type: 'default',
+          checkIn: formData.default_check_in_time || '',
+          checkOut: formData.default_check_out_time || '',
+        });
+      }
+      
+      // Add weekend if exists
+      if (formData.weekend_check_in_time || formData.weekend_check_out_time) {
+        rows.push({
+          id: idCounter++,
+          type: 'weekend',
+          checkIn: formData.weekend_check_in_time || '',
+          checkOut: formData.weekend_check_out_time || '',
+        });
+      }
+      
+      if (rows.length > 0) {
+        setTimeRows(rows);
+      }
+    }
+  }, [isEdit, formData.business_check_in_time, formData.weekend_check_in_time, formData.default_check_in_time]);
+
+  // Sync time rows to formData
+  useEffect(() => {
+    const defaultRow = timeRows.find(r => r.type === 'default');
+    const businessRow = timeRows.find(r => r.type === 'business');
+    const weekendRow = timeRows.find(r => r.type === 'weekend');
+    
+    setFormData(prev => ({
+      ...prev,
+      default_check_in_time: defaultRow?.checkIn || '',
+      default_check_out_time: defaultRow?.checkOut || '',
+      business_check_in_time: businessRow?.checkIn || '',
+      business_check_out_time: businessRow?.checkOut || '',
+      weekend_check_in_time: weekendRow?.checkIn || '',
+      weekend_check_out_time: weekendRow?.checkOut || '',
+    }));
+  }, [timeRows]);
+
+  // Handle adding time types
+  const handleAddTimeTypes = () => {
+    const defaultRow = timeRows.find(r => r.type === 'default');
+    if (defaultRow) {
+      // Convert default to business and add weekend
+      setTimeRows([
+        {
+          id: defaultRow.id,
+          type: 'business',
+          checkIn: defaultRow.checkIn || '',
+          checkOut: defaultRow.checkOut || '',
+        },
+        {
+          id: Math.max(...timeRows.map(r => r.id), 0) + 1,
+          type: 'weekend',
+          checkIn: defaultRow.checkIn || '',
+          checkOut: defaultRow.checkOut || '',
+        },
+      ]);
+    }
+  };
+
+  // Handle removing time row
+  const handleRemoveTimeRow = (id) => {
+    const row = timeRows.find(r => r.id === id);
+    if (!row) return;
+    
+    // If removing business, also remove weekend (both required together)
+    if (row.type === 'business') {
+      setTimeRows([{
+        id: row.id,
+        type: 'default',
+        checkIn: row.checkIn || '',
+        checkOut: row.checkOut || '',
+      }]);
+    }
+    // Weekend can't be removed if business exists (handled by canRemove logic)
+  };
+
+  const getTimeTypeLabel = (type) => {
+    switch (type) {
+      case 'default': return 'Default';
+      case 'business': return 'Business Days';
+      case 'weekend': return 'Weekend';
+      default: return type;
+    }
+  };
 
   // Dynamic discount rows (night-based and guest-based), max 3 each
   const [nightDiscountRows, setNightDiscountRows] = useState([
@@ -747,6 +864,19 @@ const ListingForm = () => {
       </div>
     );
   };
+
+  // Load available listing rules
+  useEffect(() => {
+    const loadAvailableRules = async () => {
+      try {
+        const rules = await getListingRules({ per_page: 100 });
+        setAvailableListingRules(rules);
+      } catch (err) {
+        console.error('Error loading listing rules:', err);
+      }
+    };
+    loadAvailableRules();
+  }, []);
 
   useEffect(() => {
     const initialize = async () => {
@@ -1468,10 +1598,13 @@ const ListingForm = () => {
         listing_gallery: normalizedGallery || [],
         // Listing Rules
         listing_rule: listing.listing_rule || listing.meta?.listing_rule || '',
+        listing_rule_mode: 'custom',
+        selected_listing_rule_id: '',
         // Admin Details
         admin_blocked_days: listing.admin_blocked_days || listing.meta?.admin_blocked_days || '',
         host_blocked_days: listing.host_blocked_days || listing.meta?.host_blocked_days || '',
         listing_minimum_stays: listing.listing_minimum_stays || listing.meta?.listing_minimum_stays || '',
+        featured_listing: listing.featured_listing || listing.meta?.featured_listing || '',
         // Taxonomies
         listing_location: listing.listing_location || [],
         listing_region: listing.listing_region || [],
@@ -1780,6 +1913,7 @@ const ListingForm = () => {
         admin_blocked_days: formData.admin_blocked_days || '',
         host_blocked_days: formData.host_blocked_days || '',
         listing_minimum_stays: formData.listing_minimum_stays || '',
+        featured_listing: formData.featured_listing || '',
         // Also persist in meta for setups that read from meta (Pods/ACF variations)
         meta: {
           listing_name: formData.listing_name || '',
@@ -1818,6 +1952,7 @@ const ListingForm = () => {
           admin_blocked_days: formData.admin_blocked_days || '',
           host_blocked_days: formData.host_blocked_days || '',
           listing_minimum_stays: formData.listing_minimum_stays || '',
+          featured_listing: formData.featured_listing || '',
           listing_gallery: galleryImageIds,
         },
         // Pods relationship field: array of attachment IDs (drives the backend "Зурагүүд" field)
@@ -1887,6 +2022,7 @@ const ListingForm = () => {
           admin_blocked_days: formData.admin_blocked_days || '',
           host_blocked_days: formData.host_blocked_days || '',
           listing_minimum_stays: formData.listing_minimum_stays || '',
+          featured_listing: formData.featured_listing || '',
           listing_gallery: galleryImageIds,
           listing_aminities: formatTaxonomy(formData.listing_aminities),
           listing_location: locationToSave,
@@ -1937,6 +2073,7 @@ const ListingForm = () => {
           admin_blocked_days: formData.admin_blocked_days || '',
           host_blocked_days: formData.host_blocked_days || '',
           listing_minimum_stays: formData.listing_minimum_stays || '',
+          featured_listing: formData.featured_listing || '',
           listing_gallery: galleryImageIds,
         };
         await updateListing(listingId, {
@@ -2131,6 +2268,49 @@ const ListingForm = () => {
         {/* Property Details */}
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Property Details</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Category
+              </label>
+              <select
+                value={extractTaxonomyId(formData.listing_category) || ''}
+                onChange={(e) => handleTaxonomyChange('listing_category', e.target.value ? [{ id: parseInt(e.target.value) }] : [])}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="">Select Category</option>
+                {taxonomies.categories.map((cat) => {
+                  const catId = cat.id || cat.term_id;
+                  return (
+                    <option key={catId} value={catId}>
+                      {cat.name}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Size
+              </label>
+              <select
+                value={extractTaxonomyId(formData.listing_size) || ''}
+                onChange={(e) => handleTaxonomyChange('listing_size', e.target.value ? [{ id: parseInt(e.target.value) }] : [])}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+              >
+                <option value="">Select Size</option>
+                {taxonomies.sizes.map((size) => {
+                  const sizeId = size.id || size.term_id;
+                  return (
+                    <option key={sizeId} value={sizeId}>
+                      {size.name}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2362,117 +2542,313 @@ const ListingForm = () => {
               <p className="text-sm text-gray-500">Discounts are disabled. Enable the toggle above to add discount options.</p>
             </div>
           )}
+
+          {/* Price and Discount Calculation Preview */}
+          <div className="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Price & Discount Calculation Preview</h3>
+            
+            {/* Base Price */}
+            <div className="mb-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Base Price</h4>
+              <div className="bg-white p-3 rounded border border-gray-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Daily Rate:</span>
+                  <span className="text-lg font-semibold text-gray-900">
+                    ${formData.listing_price_general || '0.00'} / night
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Discount Rules Explanation */}
+            {discountEnabled && (nightDiscountRows.some(r => r.count && r.percent) || guestDiscountRows.some(r => r.count && r.percent)) && (
+              <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Active Discount Rules</h4>
+                <div className="bg-white p-3 rounded border border-gray-200 space-y-2">
+                  {/* Night Discounts */}
+                  {nightDiscountRows
+                    .filter(row => row.count && row.percent)
+                    .map((row, idx) => {
+                      const basePrice = parseFloat(formData.listing_price_general) || 0;
+                      const discountPercent = parseFloat(row.percent) || 0;
+                      const discountedPrice = basePrice * (1 - discountPercent / 100);
+                      const savings = basePrice - discountedPrice;
+                      
+                      return (
+                        <div key={idx} className="text-sm">
+                          <span className="font-medium text-gray-700">Night Discount {idx + 1}:</span>
+                          <span className="text-gray-600 ml-2">
+                            Stay {row.count}+ nights → {discountPercent}% off ({discountPercent > 0 && basePrice > 0 ? `Save $${savings.toFixed(2)}/night` : ''})
+                          </span>
+                        </div>
+                      );
+                    })}
+                  
+                  {/* Guest Discounts */}
+                  {guestDiscountRows
+                    .filter(row => row.count && row.percent)
+                    .map((row, idx) => {
+                      const basePrice = parseFloat(formData.listing_price_general) || 0;
+                      const discountPercent = parseFloat(row.percent) || 0;
+                      const discountedPrice = basePrice * (1 - discountPercent / 100);
+                      const savings = basePrice - discountedPrice;
+                      
+                      return (
+                        <div key={idx} className="text-sm">
+                          <span className="font-medium text-gray-700">Guest Discount {idx + 1}:</span>
+                          <span className="text-gray-600 ml-2">
+                            Less than {row.count} guests → {discountPercent}% off ({discountPercent > 0 && basePrice > 0 ? `Save $${savings.toFixed(2)}/night` : ''})
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Example Calculations */}
+            {discountEnabled && formData.listing_price_general && parseFloat(formData.listing_price_general) > 0 && (
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">Example Calculations</h4>
+                <div className="bg-white p-4 rounded border border-gray-200 space-y-4">
+                  {/* Example 1: Night Discount */}
+                  {nightDiscountRows.some(r => r.count && r.percent) && (() => {
+                    const exampleRow = nightDiscountRows.find(r => r.count && r.percent);
+                    if (!exampleRow) return null;
+                    
+                    const basePrice = parseFloat(formData.listing_price_general) || 0;
+                    const nights = parseInt(exampleRow.count) || 0;
+                    const discountPercent = parseFloat(exampleRow.percent) || 0;
+                    const pricePerNight = basePrice * (1 - discountPercent / 100);
+                    const totalBefore = basePrice * nights;
+                    const totalAfter = pricePerNight * nights;
+                    const totalSavings = totalBefore - totalAfter;
+                    
+                    return (
+                      <div className="border-b border-gray-200 pb-3 last:border-b-0 last:pb-0">
+                        <div className="font-medium text-sm text-gray-700 mb-2">
+                          Example: {nights} Night Stay (Qualifies for {discountPercent}% discount)
+                        </div>
+                        <div className="text-sm space-y-1 ml-4">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Base price ({nights} nights × ${basePrice.toFixed(2)}):</span>
+                            <span className="text-gray-900">${totalBefore.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Discount ({discountPercent}% off):</span>
+                            <span className="text-red-600">-${totalSavings.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between font-semibold pt-1 border-t border-gray-200">
+                            <span className="text-gray-900">Total Price:</span>
+                            <span className="text-primary-600">${totalAfter.toFixed(2)}</span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            (${pricePerNight.toFixed(2)} per night after discount)
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Example 2: Guest Discount */}
+                  {guestDiscountRows.some(r => r.count && r.percent) && (() => {
+                    const exampleRow = guestDiscountRows.find(r => r.count && r.percent);
+                    if (!exampleRow) return null;
+                    
+                    const basePrice = parseFloat(formData.listing_price_general) || 0;
+                    const guestLimit = parseInt(exampleRow.count) || 0;
+                    const discountPercent = parseFloat(exampleRow.percent) || 0;
+                    const exampleGuests = Math.max(1, guestLimit - 1);
+                    const pricePerNight = basePrice * (1 - discountPercent / 100);
+                    const exampleNights = 3;
+                    const totalBefore = basePrice * exampleNights;
+                    const totalAfter = pricePerNight * exampleNights;
+                    const totalSavings = totalBefore - totalAfter;
+                    
+                    return (
+                      <div className="border-b border-gray-200 pb-3 last:border-b-0 last:pb-0">
+                        <div className="font-medium text-sm text-gray-700 mb-2">
+                          Example: {exampleGuests} Guests for {exampleNights} Nights (Less than {guestLimit}, qualifies for {discountPercent}% discount)
+                        </div>
+                        <div className="text-sm space-y-1 ml-4">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Base price ({exampleNights} nights × ${basePrice.toFixed(2)}):</span>
+                            <span className="text-gray-900">${totalBefore.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Discount ({discountPercent}% off):</span>
+                            <span className="text-red-600">-${totalSavings.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between font-semibold pt-1 border-t border-gray-200">
+                            <span className="text-gray-900">Total Price:</span>
+                            <span className="text-primary-600">${totalAfter.toFixed(2)}</span>
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            (${pricePerNight.toFixed(2)} per night after discount)
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* No discounts message */}
+                  {!nightDiscountRows.some(r => r.count && r.percent) && !guestDiscountRows.some(r => r.count && r.percent) && (
+                    <div className="text-sm text-gray-500 text-center py-2">
+                      Configure discount rules above to see example calculations
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* No base price message */}
+            {!formData.listing_price_general || parseFloat(formData.listing_price_general) <= 0 ? (
+              <div className="text-sm text-gray-500 text-center py-2 bg-white p-3 rounded border border-gray-200">
+                Enter a base daily price above to see calculations
+              </div>
+            ) : null}
+
+            {/* Explanation */}
+            <div className="mt-4 p-3 bg-blue-100 rounded border border-blue-200">
+              <p className="text-xs text-gray-700">
+                <strong>Note:</strong> Discounts are automatically applied based on the conditions above. 
+                Night discounts apply when the stay duration meets the minimum night requirement. 
+                Guest discounts apply when the number of guests is below the specified limit.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Time Details */}
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Time Details</h2>
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-md font-medium text-gray-800 mb-3">Default Times</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Default Check-in Time
-                  </label>
-                  <input
-                    type="time"
-                    name="default_check_in_time"
-                    value={formData.default_check_in_time}
-                    onChange={handleChange}
-                    disabled={!discountEnabled}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
-                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
-                    }`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Default Check-out Time
-                  </label>
-                  <input
-                    type="time"
-                    name="default_check_out_time"
-                    value={formData.default_check_out_time}
-                    onChange={handleChange}
-                    disabled={!discountEnabled}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
-                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
-                    }`}
-                  />
-                </div>
-              </div>
+          <div className="space-y-3">
+            <div className="grid grid-cols-12 gap-3 text-sm text-gray-700">
+              <div className="col-span-4">Type</div>
+              <div className="col-span-4">Check-in Time</div>
+              <div className="col-span-4">Check-out Time</div>
             </div>
-            <div>
-              <h3 className="text-md font-medium text-gray-800 mb-3">Business Times</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Business Check-in Time
-                  </label>
-                  <input
-                    type="time"
-                    name="business_check_in_time"
-                    value={formData.business_check_in_time}
-                    onChange={handleChange}
-                    disabled={!discountEnabled}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
-                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
-                    }`}
-                  />
+            {timeRows.map((row, index) => {
+              const isDefault = row.type === 'default';
+              const isBusiness = row.type === 'business';
+              const isWeekend = row.type === 'weekend';
+              const hasBusiness = timeRows.some(r => r.type === 'business');
+              const hasWeekend = timeRows.some(r => r.type === 'weekend');
+              
+              // Can remove if:
+              // - More than 1 row AND
+              // - Not weekend when business exists (weekend is required when business exists)
+              const canRemove = timeRows.length > 1 && !(isWeekend && hasBusiness);
+              const canAdd = isDefault && timeRows.length === 1;
+              
+              return (
+                <div key={row.id} className="grid grid-cols-12 gap-3 items-center">
+                  <div className="col-span-4">
+                    <select
+                      value={row.type}
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-600 text-sm"
+                    >
+                      <option value="default">Default</option>
+                      <option value="business">Business Days</option>
+                      <option value="weekend">Weekend</option>
+                    </select>
+                  </div>
+                  <div className="col-span-4">
+                    <input
+                      type="time"
+                      value={row.checkIn}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        setTimeRows(prevRows => {
+                          const updated = prevRows.map(r => {
+                            if (r.id === row.id) {
+                              return { ...r, checkIn: newValue };
+                            }
+                            // Auto-copy to business and weekend if this is default
+                            if (isDefault && (r.type === 'business' || r.type === 'weekend')) {
+                              return { ...r, checkIn: newValue };
+                            }
+                            return r;
+                          });
+                          return updated;
+                        });
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                    />
+                  </div>
+                  <div className="col-span-4 flex items-center gap-2 w-full">
+                    <input
+                      type="time"
+                      value={row.checkOut}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        setTimeRows(prevRows => {
+                          const updated = prevRows.map(r => {
+                            if (r.id === row.id) {
+                              return { ...r, checkOut: newValue };
+                            }
+                            // Auto-copy to business and weekend if this is default
+                            if (isDefault && (r.type === 'business' || r.type === 'weekend')) {
+                              return { ...r, checkOut: newValue };
+                            }
+                            return r;
+                          });
+                          return updated;
+                        });
+                      }}
+                      className="flex-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                    />
+                    <div className="flex gap-1">
+                      {canRemove && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTimeRow(row.id)}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Remove"
+                        >
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                      {canAdd && (
+                        <button
+                          type="button"
+                          onClick={handleAddTimeTypes}
+                          className="p-1.5 text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                          title="Add"
+                        >
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 4v16m8-8H4"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Business Check-out Time
-                  </label>
-                  <input
-                    type="time"
-                    name="business_check_out_time"
-                    value={formData.business_check_out_time}
-                    onChange={handleChange}
-                    disabled={!discountEnabled}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
-                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
-                    }`}
-                  />
-                </div>
-              </div>
-            </div>
-            <div>
-              <h3 className="text-md font-medium text-gray-800 mb-3">Weekend Times</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Weekend Check-in Time
-                  </label>
-                  <input
-                    type="time"
-                    name="weekend_check_in_time"
-                    value={formData.weekend_check_in_time}
-                    onChange={handleChange}
-                    disabled={!discountEnabled}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
-                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
-                    }`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Weekend Check-out Time
-                  </label>
-                  <input
-                    type="time"
-                    name="weekend_check_out_time"
-                    value={formData.weekend_check_out_time}
-                    onChange={handleChange}
-                    disabled={!discountEnabled}
-                    className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 ${
-                      !discountEnabled ? 'bg-gray-100 cursor-not-allowed' : ''
-                    }`}
-                  />
-                </div>
-              </div>
-            </div>
+              );
+            })}
           </div>
         </div>
 
@@ -2480,6 +2856,50 @@ const ListingForm = () => {
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Location Details</h2>
           <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Parent Location
+                </label>
+                <select
+                  value={formData.parent_location || ''}
+                  onChange={(e) => handleLocationChange('parent', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                >
+                  <option value="">Select Parent Location</option>
+                  {organizeLocations().parents.map((loc) => {
+                    const locId = loc.id || loc.term_id;
+                    return (
+                      <option key={locId} value={locId}>
+                        {loc.name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Child Location
+                </label>
+                <select
+                  value={formData.child_location || ''}
+                  onChange={(e) => handleLocationChange('child', e.target.value)}
+                  disabled={!formData.parent_location}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                >
+                  <option value="">Select Child Location (optional)</option>
+                  {formData.parent_location && getChildrenForParent(formData.parent_location).map((loc) => {
+                    const locId = loc.id || loc.term_id;
+                    return (
+                      <option key={locId} value={locId}>
+                        {loc.name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Exact Location
@@ -2505,97 +2925,6 @@ const ListingForm = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
                 placeholder="e.g., Near City Center"
               />
-            </div>
-          </div>
-        </div>
-
-        {/* Taxonomies - Categories, Size, Location */}
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Categories & Location</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Category
-              </label>
-              <select
-                value={extractTaxonomyId(formData.listing_category) || ''}
-                onChange={(e) => handleTaxonomyChange('listing_category', e.target.value ? [{ id: parseInt(e.target.value) }] : [])}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="">Select Category</option>
-                {taxonomies.categories.map((cat) => {
-                  const catId = cat.id || cat.term_id;
-                  return (
-                    <option key={catId} value={catId}>
-                      {cat.name}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Size
-              </label>
-              <select
-                value={extractTaxonomyId(formData.listing_size) || ''}
-                onChange={(e) => handleTaxonomyChange('listing_size', e.target.value ? [{ id: parseInt(e.target.value) }] : [])}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="">Select Size</option>
-                {taxonomies.sizes.map((size) => {
-                  const sizeId = size.id || size.term_id;
-                  return (
-                    <option key={sizeId} value={sizeId}>
-                      {size.name}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Parent Location
-              </label>
-              <select
-                value={formData.parent_location || ''}
-                onChange={(e) => handleLocationChange('parent', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-              >
-                <option value="">Select Parent Location</option>
-                {organizeLocations().parents.map((loc) => {
-                  const locId = loc.id || loc.term_id;
-                  return (
-                    <option key={locId} value={locId}>
-                      {loc.name}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Child Location
-              </label>
-              <select
-                value={formData.child_location || ''}
-                onChange={(e) => handleLocationChange('child', e.target.value)}
-                disabled={!formData.parent_location}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="">Select Child Location (optional)</option>
-                {formData.parent_location && getChildrenForParent(formData.parent_location).map((loc) => {
-                  const locId = loc.id || loc.term_id;
-                  return (
-                    <option key={locId} value={locId}>
-                      {loc.name}
-                    </option>
-                  );
-                })}
-              </select>
             </div>
           </div>
         </div>
@@ -2715,18 +3044,112 @@ const ListingForm = () => {
         {/* Listing Rules */}
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Listing Rules</h2>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Rules
-            </label>
-            <textarea
-              name="listing_rule"
-              value={formData.listing_rule}
-              onChange={handleChange}
-              rows={6}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-              placeholder="Enter listing rules and policies..."
-            />
+          <div className="space-y-4">
+            {/* Rule Mode Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">
+                Rule Source
+              </label>
+              <div className="flex gap-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="listing_rule_mode"
+                    value="existing"
+                    checked={formData.listing_rule_mode === 'existing'}
+                    onChange={(e) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        listing_rule_mode: e.target.value,
+                        listing_rule: '', // Clear custom rule when switching
+                      }));
+                    }}
+                    className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">Choose existing rule</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="listing_rule_mode"
+                    value="custom"
+                    checked={formData.listing_rule_mode === 'custom'}
+                    onChange={(e) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        listing_rule_mode: e.target.value,
+                        selected_listing_rule_id: '', // Clear selected rule when switching
+                      }));
+                    }}
+                    className="w-4 h-4 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="text-sm text-gray-700">Create custom rule</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Existing Rule Selection */}
+            {formData.listing_rule_mode === 'existing' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Select Listing Rule *
+                </label>
+                <select
+                  name="selected_listing_rule_id"
+                  value={formData.selected_listing_rule_id}
+                  onChange={(e) => {
+                    const ruleId = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      selected_listing_rule_id: ruleId,
+                    }));
+                    
+                    // Auto-fill listing_rule when an existing rule is selected
+                    if (ruleId) {
+                      const selectedRule = availableListingRules.find(r => (r.id || r.ID) == ruleId);
+                      if (selectedRule) {
+                        const ruleContent = selectedRule.listing_rules || selectedRule.meta?.listing_rules || selectedRule.content?.rendered || '';
+                        setFormData(prev => ({
+                          ...prev,
+                          listing_rule: ruleContent,
+                        }));
+                      }
+                    }
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                  required={formData.listing_rule_mode === 'existing'}
+                >
+                  <option value="">Select a listing rule...</option>
+                  {availableListingRules.map((rule) => {
+                    const ruleId = rule.id || rule.ID;
+                    const ruleTitle = rule.title?.rendered || rule.listing_rule_title || rule.meta?.listing_rule_title || 'Untitled Rule';
+                    return (
+                      <option key={ruleId} value={ruleId}>
+                        {ruleTitle}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            )}
+
+            {/* Custom Rule Textarea */}
+            {formData.listing_rule_mode === 'custom' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Rules *
+                </label>
+                <textarea
+                  name="listing_rule"
+                  value={formData.listing_rule}
+                  onChange={handleChange}
+                  rows={6}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                  placeholder="Enter listing rules and policies..."
+                  required={formData.listing_rule_mode === 'custom'}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -2734,6 +3157,35 @@ const ListingForm = () => {
         <div>
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Admin Details</h2>
           <div className="space-y-4">
+            <div>
+              <label className="flex items-center justify-between">
+                <span className="block text-sm font-medium text-gray-700">
+                  Featured Listing
+                </span>
+                <div className="flex items-center cursor-pointer">
+                  <span className={`mr-3 text-sm font-medium ${formData.featured_listing === 'yes' ? 'text-gray-900' : 'text-gray-500'}`}>
+                    {formData.featured_listing === 'yes' ? 'Yes' : 'No'}
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      checked={formData.featured_listing === 'yes'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        featured_listing: e.target.checked ? 'yes' : ''
+                      }))}
+                      className="sr-only"
+                    />
+                    <div className={`block w-14 h-8 rounded-full transition-colors ${
+                      formData.featured_listing === 'yes' ? 'bg-primary-600' : 'bg-gray-300'
+                    }`}></div>
+                    <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${
+                      formData.featured_listing === 'yes' ? 'transform translate-x-6' : ''
+                    }`}></div>
+                  </div>
+                </div>
+              </label>
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Minimum Stays
