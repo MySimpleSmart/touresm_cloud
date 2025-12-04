@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   getListing,
@@ -15,6 +15,7 @@ import {
   updateListingMetaField,
   getListingRules,
   getListingRule,
+  uploadMedia,
 } from '../services/api';
 import { updatePodsItemFields } from '../services/api';
 import ImageGalleryUpload from '../components/ImageGalleryUpload';
@@ -298,6 +299,50 @@ const ListingForm = () => {
     { id: 1, type: 'default', checkIn: '14:00', checkOut: '11:00' },
   ]);
 
+  // Search states for location dropdowns
+  const [parentLocationSearch, setParentLocationSearch] = useState('');
+  const [childLocationSearch, setChildLocationSearch] = useState('');
+  const [showParentLocationDropdown, setShowParentLocationDropdown] = useState(false);
+  const [showChildLocationDropdown, setShowChildLocationDropdown] = useState(false);
+  const [showFamiliarLocationSuggestions, setShowFamiliarLocationSuggestions] = useState(false);
+  
+  // Refs for click outside detection
+  const parentLocationDropdownRef = useRef(null);
+  const childLocationDropdownRef = useRef(null);
+  
+  // Familiar Location suggestions
+  const familiarLocationSuggestions = [
+    'Near City Center', 'Beachfront', 'Downtown', 'Historic District', 'Waterfront',
+    'Shopping District', 'Near Airport', 'Riverside', 'Mountain View', 'Ocean View',
+    'Near Park', 'Suburban', 'Quiet Neighborhood', 'Business District', 'Tourist Area',
+    'Cultural District', 'Entertainment District', 'Residential Area', 'Seaside', 'Countryside'
+  ];
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      // Close parent location dropdown
+      if (showParentLocationDropdown && parentLocationDropdownRef.current) {
+        if (!parentLocationDropdownRef.current.contains(event.target)) {
+          setShowParentLocationDropdown(false);
+        }
+      }
+      // Close child location dropdown
+      if (showChildLocationDropdown && childLocationDropdownRef.current) {
+        if (!childLocationDropdownRef.current.contains(event.target)) {
+          setShowChildLocationDropdown(false);
+        }
+      }
+    };
+
+    if (showParentLocationDropdown || showChildLocationDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showParentLocationDropdown, showChildLocationDropdown]);
+
   // Initialize time rows when loading listing
   useEffect(() => {
     if (isEdit && formData.business_check_in_time !== undefined) {
@@ -411,6 +456,26 @@ const ListingForm = () => {
   const [guestDiscountRows, setGuestDiscountRows] = useState([
     { id: 1, count: '', percent: '5', mode: 'preset' },
   ]);
+
+  // Additional Services state
+  const [additionalServices, setAdditionalServices] = useState([]);
+  const [expandedServices, setExpandedServices] = useState(new Set());
+
+  // Active section for sidebar + helper text
+  const [activeSection, setActiveSection] = useState('basic');
+
+  const sectionHelperText = {
+    basic: 'Set the main title and description your guests will see first.',
+    property: 'Define property type, size, capacity, and rental period type.',
+    price: 'Configure base prices for each rental period. Daily price is required.',
+    discount: 'Add optional discounts based on nights stayed or number of guests.',
+    time: 'Set check-in and check-out times for default, business days, and weekends.',
+    location: 'Specify exact and familiar locations to help guests find the property.',
+    media: 'Add video, social URLs, and gallery images to showcase your listing.',
+    services: 'Add additional paid services like breakfast or airport pickup.',
+    rules: 'Attach listing rules or create custom rules for this listing.',
+    admin: 'Internal admin settings such as featured listing and minimum stays.',
+  };
 
   // Initialize discount enabled state when loading listing
   useEffect(() => {
@@ -1617,6 +1682,44 @@ const ListingForm = () => {
         child_location: childLocation,
       };
       setFormData(mapped);
+      
+      // Load additional services if they exist
+      try {
+        // Try to get additional services from meta or direct fields
+        const servicesData = listing.additional_services || listing.meta?.additional_services || [];
+        if (Array.isArray(servicesData) && servicesData.length > 0) {
+          const loadedServices = servicesData.map((service, idx) => {
+            // Handle image - could be ID or object
+            let imageData = null;
+            if (service.upload_item_image) {
+              if (typeof service.upload_item_image === 'object') {
+                imageData = service.upload_item_image;
+              } else {
+                // It's an ID, we'll need to fetch the URL later or store as ID
+                imageData = { id: service.upload_item_image };
+              }
+            }
+            
+            return {
+              id: idx + 1,
+              additional_service_name: service.additional_service_name || service.name || '',
+              additional_service_description: service.additional_service_description || service.description || '',
+              item_price: service.item_price || service.price || '',
+              additional_charge_type: service.additional_charge_type || service.charge_type || '',
+              upload_item_image: imageData,
+              active: service.active !== undefined ? service.active : true,
+            };
+          });
+          setAdditionalServices(loadedServices);
+          // Expand all loaded services by default
+          if (loadedServices.length > 0) {
+            setExpandedServices(new Set(loadedServices.map(s => s.id)));
+          }
+        }
+      } catch (err) {
+        // Silent fail - services might not exist yet
+      }
+      
       // Set initial snapshot after mapping
       try {
         setInitialSnapshot(JSON.stringify(mapped));
@@ -1649,6 +1752,9 @@ const ListingForm = () => {
         parent_location: value ? parseInt(value) : null,
         child_location: null, // Reset child when parent changes
       }));
+      // Clear child location search when parent changes
+      setChildLocationSearch('');
+      setShowChildLocationDropdown(false);
     } else if (type === 'child') {
       setFormData((prev) => ({
         ...prev,
@@ -1816,7 +1922,7 @@ const ListingForm = () => {
     }
   }, [isEdit, priceRowsInitialized, formData.listing_price_general, formData.listing_price_weekly, formData.listing_price_fortnightly, formData.listing_price_monthly, formData.listing_price_annually]);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e, saveAsDraft = false) => {
     e.preventDefault();
     setSaving(true);
     setError('');
@@ -1867,7 +1973,7 @@ const ListingForm = () => {
         // WordPress core fields
         title: formData.listing_name || '',
         content: formData.listing_description || '',
-        status: 'publish',
+        status: saveAsDraft ? 'draft' : 'publish',
         // Basic Details
         listing_name: formData.listing_name || '',
         listing_description: formData.listing_description || '',
@@ -1914,6 +2020,15 @@ const ListingForm = () => {
         host_blocked_days: formData.host_blocked_days || '',
         listing_minimum_stays: formData.listing_minimum_stays || '',
         featured_listing: formData.featured_listing || '',
+        // Additional Services
+        additional_services: additionalServices.map(service => ({
+          additional_service_name: service.additional_service_name || '',
+          additional_service_description: service.additional_service_description || '',
+          item_price: service.item_price || '',
+          additional_charge_type: service.additional_charge_type || '',
+          upload_item_image: service.upload_item_image ? (typeof service.upload_item_image === 'object' ? service.upload_item_image.id : service.upload_item_image) : null,
+          active: service.active !== undefined ? service.active : true,
+        })),
         // Also persist in meta for setups that read from meta (Pods/ACF variations)
         meta: {
           listing_name: formData.listing_name || '',
@@ -1954,6 +2069,15 @@ const ListingForm = () => {
           listing_minimum_stays: formData.listing_minimum_stays || '',
           featured_listing: formData.featured_listing || '',
           listing_gallery: galleryImageIds,
+          // Additional Services
+          additional_services: additionalServices.map(service => ({
+            additional_service_name: service.additional_service_name || '',
+            additional_service_description: service.additional_service_description || '',
+            item_price: service.item_price || '',
+            additional_charge_type: service.additional_charge_type || '',
+            upload_item_image: service.upload_item_image ? (typeof service.upload_item_image === 'object' ? service.upload_item_image.id : service.upload_item_image) : null,
+            active: service.active !== undefined ? service.active : true,
+          })),
         },
         // Pods relationship field: array of attachment IDs (drives the backend "Зурагүүд" field)
         listing_gallery: galleryImageIds,
@@ -2029,6 +2153,15 @@ const ListingForm = () => {
           listing_region: locationToSave,
           listing_size: formatTaxonomy(formData.listing_size),
           listing_period_type: formatTaxonomy(formData.listing_period_type),
+          // Additional Services
+          additional_services: additionalServices.map(service => ({
+            additional_service_name: service.additional_service_name || '',
+            additional_service_description: service.additional_service_description || '',
+            item_price: service.item_price || '',
+            additional_charge_type: service.additional_charge_type || '',
+            upload_item_image: service.upload_item_image ? (typeof service.upload_item_image === 'object' ? service.upload_item_image.id : service.upload_item_image) : null,
+            active: service.active !== undefined ? service.active : true,
+          })),
         });
       } catch (podsErr) {
         // silent; other methods below will still try to persist
@@ -2075,6 +2208,15 @@ const ListingForm = () => {
           listing_minimum_stays: formData.listing_minimum_stays || '',
           featured_listing: formData.featured_listing || '',
           listing_gallery: galleryImageIds,
+          // Additional Services
+          additional_services: additionalServices.map(service => ({
+            additional_service_name: service.additional_service_name || '',
+            additional_service_description: service.additional_service_description || '',
+            item_price: service.item_price || '',
+            additional_charge_type: service.additional_charge_type || '',
+            upload_item_image: service.upload_item_image ? (typeof service.upload_item_image === 'object' ? service.upload_item_image.id : service.upload_item_image) : null,
+            active: service.active !== undefined ? service.active : true,
+          })),
         };
         await updateListing(listingId, {
           title: formData.listing_name || '',
@@ -2182,7 +2324,16 @@ const ListingForm = () => {
         // silent
       }
       
+      // Only navigate if not saving as draft (draft saves stay on page for further editing)
+      if (!saveAsDraft) {
       navigate('/listings');
+      } else {
+        // If saving as draft and it's a new listing, navigate to edit page
+        if (!isEdit && savedListing?.id) {
+          navigate(`/listings/edit/${savedListing.id}`);
+        }
+        // If editing existing listing as draft, stay on the page
+      }
     } catch (err) {
       // Show user-friendly error message
       if (err.message) {
@@ -2218,7 +2369,7 @@ const ListingForm = () => {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-7xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">
           {isEdit ? 'Edit Listing' : 'Create New Listing'}
@@ -2231,9 +2382,19 @@ const ListingForm = () => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6 space-y-6">
+      <div className="flex gap-6 items-start">
+        {/* Main Form */}
+        <div className="flex-1">
+          <form
+            onSubmit={handleSubmit}
+            className="bg-white rounded-lg shadow p-6 space-y-6"
+          >
         {/* Basic Details */}
-        <div>
+        <div
+          id="basic-details"
+          onFocusCapture={() => setActiveSection('basic')}
+          onMouseEnter={() => setActiveSection('basic')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Basic Details</h2>
           <div className="space-y-4">
             <div>
@@ -2266,8 +2427,50 @@ const ListingForm = () => {
             </div>
 
         {/* Property Details */}
-        <div>
+        <div
+          id="property-details"
+          onFocusCapture={() => setActiveSection('property')}
+          onMouseEnter={() => setActiveSection('property')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Property Details</h2>
+
+          {/* Rental Period Type now belongs to Property Details */}
+          <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <label className="block text-sm font-medium text-gray-700 mb-3">
+              Rental Period Type
+            </label>
+            <div className="flex flex-wrap gap-4">
+              {taxonomies.periodTypes.map((periodType) => {
+                const periodTypeId = periodType.id || periodType.term_id;
+                const isSelected = isPeriodTypeSelected(periodTypeId);
+                return (
+                  <label
+                    key={periodTypeId}
+                    className="flex items-center p-3 bg-white border-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-50"
+                    style={{
+                      borderColor: isSelected ? '#2563eb' : '#e5e7eb',
+                      backgroundColor: isSelected ? '#eff6ff' : 'white',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handlePeriodTypeToggle(periodTypeId)}
+                      className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                    />
+                    <span className="ml-3 text-sm font-medium text-gray-900">
+                      {periodType.name}
+                    </span>
+                  </label>
+                );
+              })}
+              {taxonomies.periodTypes.length === 0 && (
+                <p className="text-sm text-gray-500">No period types available. Please add them in WordPress.</p>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-gray-500">Select one or both period types.</p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2311,6 +2514,7 @@ const ListingForm = () => {
               </select>
             </div>
           </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2357,45 +2561,12 @@ const ListingForm = () => {
         </div>
 
         {/* Price Details */}
-        <div>
+        <div
+          id="price-details"
+          onFocusCapture={() => setActiveSection('price')}
+          onMouseEnter={() => setActiveSection('price')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Price Details</h2>
-          
-          {/* Period Type Selection */}
-          <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Rental Period Type
-            </label>
-            <div className="flex flex-wrap gap-4">
-              {taxonomies.periodTypes.map((periodType) => {
-                const periodTypeId = periodType.id || periodType.term_id;
-                const isSelected = isPeriodTypeSelected(periodTypeId);
-                return (
-                  <label
-                    key={periodTypeId}
-                    className="flex items-center p-3 bg-white border-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-50"
-                    style={{
-                      borderColor: isSelected ? '#2563eb' : '#e5e7eb',
-                      backgroundColor: isSelected ? '#eff6ff' : 'white',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => handlePeriodTypeToggle(periodTypeId)}
-                      className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                    />
-                    <span className="ml-3 text-sm font-medium text-gray-900">
-                      {periodType.name}
-                    </span>
-                  </label>
-                );
-              })}
-              {taxonomies.periodTypes.length === 0 && (
-                <p className="text-sm text-gray-500">No period types available. Please add them in WordPress.</p>
-              )}
-            </div>
-            <p className="mt-2 text-xs text-gray-500">Select one or both period types.</p>
-          </div>
 
           {/* Dynamic Price Rows */}
           <div className="space-y-4">
@@ -2478,7 +2649,11 @@ const ListingForm = () => {
         </div>
 
         {/* Discount Details */}
-        <div>
+        <div
+          id="discount-details"
+          onFocusCapture={() => setActiveSection('discount')}
+          onMouseEnter={() => setActiveSection('discount')}
+        >
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Discount Details</h2>
             {/* Toggle Switch */}
@@ -2518,8 +2693,8 @@ const ListingForm = () => {
                     <div className="col-span-5">Discount (%)</div>
                   </div>
                   {nightDiscountRows.map(renderNightDiscountRow)}
-                </div>
-              </div>
+                        </div>
+                        </div>
 
               {/* Guest Discounts */}
               <div>
@@ -2549,12 +2724,12 @@ const ListingForm = () => {
             
             {/* Base Price */}
             <div className="mb-4">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Base Price</h4>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Base Price (₮)</h4>
               <div className="bg-white p-3 rounded border border-gray-200">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">Daily Rate:</span>
                   <span className="text-lg font-semibold text-gray-900">
-                    ${formData.listing_price_general || '0.00'} / night
+                    ₮{formData.listing_price_general || '0.00'} / night
                   </span>
                 </div>
               </div>
@@ -2574,11 +2749,11 @@ const ListingForm = () => {
                       const discountedPrice = basePrice * (1 - discountPercent / 100);
                       const savings = basePrice - discountedPrice;
                       
-                      return (
+                            return (
                         <div key={idx} className="text-sm">
                           <span className="font-medium text-gray-700">Night Discount {idx + 1}:</span>
                           <span className="text-gray-600 ml-2">
-                            Stay {row.count}+ nights → {discountPercent}% off ({discountPercent > 0 && basePrice > 0 ? `Save $${savings.toFixed(2)}/night` : ''})
+                            Stay {row.count}+ nights → {discountPercent}% off ({discountPercent > 0 && basePrice > 0 ? `Save ₮${savings.toFixed(2)}/night` : ''})
                           </span>
                         </div>
                       );
@@ -2597,7 +2772,7 @@ const ListingForm = () => {
                         <div key={idx} className="text-sm">
                           <span className="font-medium text-gray-700">Guest Discount {idx + 1}:</span>
                           <span className="text-gray-600 ml-2">
-                            Less than {row.count} guests → {discountPercent}% off ({discountPercent > 0 && basePrice > 0 ? `Save $${savings.toFixed(2)}/night` : ''})
+                            Less than {row.count} guests → {discountPercent}% off ({discountPercent > 0 && basePrice > 0 ? `Save ₮${savings.toFixed(2)}/night` : ''})
                           </span>
                         </div>
                       );
@@ -2631,24 +2806,24 @@ const ListingForm = () => {
                         </div>
                         <div className="text-sm space-y-1 ml-4">
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Base price ({nights} nights × ${basePrice.toFixed(2)}):</span>
-                            <span className="text-gray-900">${totalBefore.toFixed(2)}</span>
+                            <span className="text-gray-600">Base price ({nights} nights × ₮{basePrice.toFixed(2)}):</span>
+                            <span className="text-gray-900">₮{totalBefore.toFixed(2)}</span>
                           </div>
-                          <div className="flex justify-between">
+                          <div className="flex justify_between">
                             <span className="text-gray-600">Discount ({discountPercent}% off):</span>
-                            <span className="text-red-600">-${totalSavings.toFixed(2)}</span>
+                            <span className="text-red-600">-₮{totalSavings.toFixed(2)}</span>
                           </div>
                           <div className="flex justify-between font-semibold pt-1 border-t border-gray-200">
                             <span className="text-gray-900">Total Price:</span>
-                            <span className="text-primary-600">${totalAfter.toFixed(2)}</span>
+                            <span className="text-primary-600">₮{totalAfter.toFixed(2)}</span>
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
-                            (${pricePerNight.toFixed(2)} per night after discount)
+                            (₮{pricePerNight.toFixed(2)} per night after discount)
                           </div>
                         </div>
                       </div>
-                    );
-                  })()}
+                            );
+                          })()}
 
                   {/* Example 2: Guest Discount */}
                   {guestDiscountRows.some(r => r.count && r.percent) && (() => {
@@ -2672,19 +2847,19 @@ const ListingForm = () => {
                         </div>
                         <div className="text-sm space-y-1 ml-4">
                           <div className="flex justify-between">
-                            <span className="text-gray-600">Base price ({exampleNights} nights × ${basePrice.toFixed(2)}):</span>
-                            <span className="text-gray-900">${totalBefore.toFixed(2)}</span>
+                            <span className="text-gray-600">Base price ({exampleNights} nights × ₮{basePrice.toFixed(2)}):</span>
+                            <span className="text-gray-900">₮{totalBefore.toFixed(2)}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-gray-600">Discount ({discountPercent}% off):</span>
-                            <span className="text-red-600">-${totalSavings.toFixed(2)}</span>
+                            <span className="text-red-600">-₮{totalSavings.toFixed(2)}</span>
                           </div>
                           <div className="flex justify-between font-semibold pt-1 border-t border-gray-200">
                             <span className="text-gray-900">Total Price:</span>
-                            <span className="text-primary-600">${totalAfter.toFixed(2)}</span>
+                            <span className="text-primary-600">₮{totalAfter.toFixed(2)}</span>
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
-                            (${pricePerNight.toFixed(2)} per night after discount)
+                            (₮{pricePerNight.toFixed(2)} per night after discount)
                           </div>
                         </div>
                       </div>
@@ -2695,9 +2870,9 @@ const ListingForm = () => {
                   {!nightDiscountRows.some(r => r.count && r.percent) && !guestDiscountRows.some(r => r.count && r.percent) && (
                     <div className="text-sm text-gray-500 text-center py-2">
                       Configure discount rules above to see example calculations
-                    </div>
-                  )}
                 </div>
+                  )}
+              </div>
               </div>
             )}
 
@@ -2705,7 +2880,7 @@ const ListingForm = () => {
             {!formData.listing_price_general || parseFloat(formData.listing_price_general) <= 0 ? (
               <div className="text-sm text-gray-500 text-center py-2 bg-white p-3 rounded border border-gray-200">
                 Enter a base daily price above to see calculations
-              </div>
+                </div>
             ) : null}
 
             {/* Explanation */}
@@ -2715,19 +2890,23 @@ const ListingForm = () => {
                 Night discounts apply when the stay duration meets the minimum night requirement. 
                 Guest discounts apply when the number of guests is below the specified limit.
               </p>
-            </div>
-          </div>
-        </div>
+                      </div>
+                </div>
+              </div>
 
         {/* Time Details */}
-        <div>
+        <div
+          id="time-details"
+          onFocusCapture={() => setActiveSection('time')}
+          onMouseEnter={() => setActiveSection('time')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Time Details</h2>
-          <div className="space-y-3">
-            <div className="grid grid-cols-12 gap-3 text-sm text-gray-700">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-12 gap-3 text-sm text-gray-700">
               <div className="col-span-4">Type</div>
               <div className="col-span-4">Check-in Time</div>
               <div className="col-span-4">Check-out Time</div>
-            </div>
+                  </div>
             {timeRows.map((row, index) => {
               const isDefault = row.type === 'default';
               const isBusiness = row.type === 'business';
@@ -2741,21 +2920,21 @@ const ListingForm = () => {
               const canRemove = timeRows.length > 1 && !(isWeekend && hasBusiness);
               const canAdd = isDefault && timeRows.length === 1;
               
-              return (
-                <div key={row.id} className="grid grid-cols-12 gap-3 items-center">
-                  <div className="col-span-4">
-                    <select
+                    return (
+                      <div key={row.id} className="grid grid-cols-12 gap-3 items-center">
+                        <div className="col-span-4">
+                          <select
                       value={row.type}
-                      disabled
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-600 text-sm"
-                    >
+                            disabled
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-600 text-sm"
+                          >
                       <option value="default">Default</option>
                       <option value="business">Business Days</option>
                       <option value="weekend">Weekend</option>
-                    </select>
-                  </div>
+                          </select>
+                        </div>
                   <div className="col-span-4">
-                    <input
+                          <input
                       type="time"
                       value={row.checkIn}
                       onChange={(e) => {
@@ -2775,13 +2954,13 @@ const ListingForm = () => {
                         });
                       }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-                    />
-                  </div>
+                          />
+                        </div>
                   <div className="col-span-4 flex items-center gap-2 w-full">
                     <input
                       type="time"
                       value={row.checkOut}
-                      onChange={(e) => {
+                                  onChange={(e) => {
                         const newValue = e.target.value;
                         setTimeRows(prevRows => {
                           const updated = prevRows.map(r => {
@@ -2799,106 +2978,224 @@ const ListingForm = () => {
                       }}
                       className="flex-1 w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
                     />
-                    <div className="flex gap-1">
-                      {canRemove && (
-                        <button
-                          type="button"
+                          <div className="flex gap-1">
+                          {canRemove && (
+                            <button
+                              type="button"
                           onClick={() => handleRemoveTimeRow(row.id)}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
-                          title="Remove"
-                        >
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10"
-                            />
-                          </svg>
-                        </button>
-                      )}
+                              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="Remove"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10"
+                                />
+                              </svg>
+                            </button>
+                          )}
                       {canAdd && (
-                        <button
-                          type="button"
+                            <button
+                              type="button"
                           onClick={handleAddTimeTypes}
-                          className="p-1.5 text-primary-600 hover:bg-primary-50 rounded transition-colors"
-                          title="Add"
-                        >
-                          <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 4v16m8-8H4"
-                            />
-                          </svg>
-                        </button>
-                      )}
+                              className="p-1.5 text-primary-600 hover:bg-primary-50 rounded transition-colors"
+                              title="Add"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 4v16m8-8H4"
+                                />
+                              </svg>
+                            </button>
+                          )}
                     </div>
-                  </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
         </div>
 
         {/* Location Details */}
-        <div>
+        <div
+          id="location-details"
+          onFocusCapture={() => setActiveSection('location')}
+          onMouseEnter={() => setActiveSection('location')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Location Details</h2>
           <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Parent Location - Searchable Dropdown */}
+              <div className="relative" ref={parentLocationDropdownRef}>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                   Parent Location
-                </label>
-                <select
-                  value={formData.parent_location || ''}
-                  onChange={(e) => handleLocationChange('parent', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-                >
-                  <option value="">Select Parent Location</option>
-                  {organizeLocations().parents.map((loc) => {
-                    const locId = loc.id || loc.term_id;
-                    return (
-                      <option key={locId} value={locId}>
-                        {loc.name}
-                      </option>
-                    );
-                  })}
-                </select>
+                  </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={(() => {
+                      const selected = organizeLocations().parents.find(
+                        loc => (loc.id || loc.term_id) == formData.parent_location
+                      );
+                      return selected ? selected.name : parentLocationSearch;
+                    })()}
+                    onChange={(e) => {
+                      setParentLocationSearch(e.target.value);
+                      setShowParentLocationDropdown(true);
+                    }}
+                    onFocus={() => setShowParentLocationDropdown(true)}
+                    placeholder="Search or select parent location..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                  />
+                  {showParentLocationDropdown && (
+                    <div className="parent-location-dropdown dropdown-menu absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      <div className="p-2 border-b border-gray-200 sticky top-0 bg-white">
+                  <input
+                          type="text"
+                          value={parentLocationSearch}
+                          onChange={(e) => setParentLocationSearch(e.target.value)}
+                          onFocus={(e) => e.stopPropagation()}
+                          placeholder="Search locations..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 text-sm"
+                          autoFocus
+                  />
+                </div>
+                      <div className="py-1">
+                        {(() => {
+                          const filtered = organizeLocations().parents.filter(loc => {
+                            const searchLower = parentLocationSearch.toLowerCase();
+                            return loc.name.toLowerCase().includes(searchLower);
+                          });
+                          return filtered.length > 0 ? (
+                            filtered.map((loc) => {
+                              const locId = loc.id || loc.term_id;
+                              const isSelected = formData.parent_location == locId;
+                              return (
+                                <button
+                                  key={locId}
+                                  type="button"
+                                  onClick={() => {
+                                    handleLocationChange('parent', locId);
+                                    setParentLocationSearch('');
+                                    setShowParentLocationDropdown(false);
+                                  }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault(); // Prevent input blur before click
+                                  }}
+                                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
+                                    isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700'
+                                  }`}
+                                >
+                                  {loc.name}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-4 py-2 text-sm text-gray-500">No locations found</div>
+                          );
+                        })()}
+                </div>
+                </div>
+                  )}
               </div>
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+              {/* Child Location - Searchable Dropdown */}
+              <div className="relative" ref={childLocationDropdownRef}>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                   Child Location
-                </label>
-                <select
-                  value={formData.child_location || ''}
-                  onChange={(e) => handleLocationChange('child', e.target.value)}
-                  disabled={!formData.parent_location}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                >
-                  <option value="">Select Child Location (optional)</option>
-                  {formData.parent_location && getChildrenForParent(formData.parent_location).map((loc) => {
-                    const locId = loc.id || loc.term_id;
-                    return (
-                      <option key={locId} value={locId}>
-                        {loc.name}
-                      </option>
-                    );
-                  })}
-                </select>
+                  </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={(() => {
+                      if (!formData.parent_location) return '';
+                      const selected = getChildrenForParent(formData.parent_location).find(
+                        loc => (loc.id || loc.term_id) == formData.child_location
+                      );
+                      return selected ? selected.name : childLocationSearch;
+                    })()}
+                    onChange={(e) => {
+                      setChildLocationSearch(e.target.value);
+                      setShowChildLocationDropdown(true);
+                    }}
+                    onFocus={() => {
+                      if (formData.parent_location) {
+                        setShowChildLocationDropdown(true);
+                      }
+                    }}
+                    disabled={!formData.parent_location}
+                    placeholder={formData.parent_location ? "Search or select child location..." : "Select parent location first"}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  />
+                  {showChildLocationDropdown && formData.parent_location && (
+                    <div className="child-location-dropdown dropdown-menu absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      <div className="p-2 border-b border-gray-200 sticky top-0 bg-white">
+                  <input
+                          type="text"
+                          value={childLocationSearch}
+                          onChange={(e) => setChildLocationSearch(e.target.value)}
+                          onFocus={(e) => e.stopPropagation()}
+                          placeholder="Search locations..."
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500 text-sm"
+                          autoFocus
+                  />
+                </div>
+                      <div className="py-1">
+                        {(() => {
+                          const children = getChildrenForParent(formData.parent_location);
+                          const filtered = children.filter(loc => {
+                            const searchLower = childLocationSearch.toLowerCase();
+                            return loc.name.toLowerCase().includes(searchLower);
+                          });
+                          return filtered.length > 0 ? (
+                            filtered.map((loc) => {
+                              const locId = loc.id || loc.term_id;
+                              const isSelected = formData.child_location == locId;
+                              return (
+                                <button
+                                  key={locId}
+                                  type="button"
+                                  onClick={() => {
+                                    handleLocationChange('child', locId);
+                                    setChildLocationSearch('');
+                                    setShowChildLocationDropdown(false);
+                                  }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault(); // Prevent input blur before click
+                                  }}
+                                  className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-100 ${
+                                    isSelected ? 'bg-primary-50 text-primary-700 font-medium' : 'text-gray-700'
+                                  }`}
+                                >
+                                  {loc.name}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-4 py-2 text-sm text-gray-500">No locations found</div>
+                          );
+                        })()}
               </div>
+            </div>
+                  )}
+          </div>
+        </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2922,9 +3219,39 @@ const ListingForm = () => {
                 name="listing_familiar_location"
                 value={formData.listing_familiar_location}
                 onChange={handleChange}
+                onFocus={() => setShowFamiliarLocationSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowFamiliarLocationSuggestions(false), 200)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
                 placeholder="e.g., Near City Center"
               />
+              {showFamiliarLocationSuggestions && (
+                <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <div className="text-xs text-gray-600 mb-2 font-medium">Suggestions:</div>
+                  <div className="flex flex-wrap gap-2">
+                    {familiarLocationSuggestions
+                      .filter(suggestion => {
+                        const currentValue = formData.listing_familiar_location.toLowerCase();
+                        return !currentValue || suggestion.toLowerCase().includes(currentValue);
+                      })
+                      .map((suggestion, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setFormData(prev => ({
+                              ...prev,
+                              listing_familiar_location: suggestion
+                            }));
+                            setShowFamiliarLocationSuggestions(false);
+                          }}
+                          className="px-3 py-1 text-xs bg-white border border-gray-300 rounded-full hover:bg-primary-50 hover:border-primary-300 hover:text-primary-700 transition-colors"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+            </div>
+            </div>
+              )}
             </div>
           </div>
         </div>
@@ -2992,7 +3319,11 @@ const ListingForm = () => {
         </div>
 
         {/* Video and Social */}
-        <div>
+        <div
+          id="media-details"
+          onFocusCapture={() => setActiveSection('media')}
+          onMouseEnter={() => setActiveSection('media')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Video and Social</h2>
           <div className="space-y-4">
             <div>
@@ -3026,7 +3357,10 @@ const ListingForm = () => {
         </div>
 
         {/* Gallery */}
-        <div>
+        <div
+          onFocusCapture={() => setActiveSection('media')}
+          onMouseEnter={() => setActiveSection('media')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Gallery</h2>
           <ImageGalleryUpload
             images={formData.listing_gallery}
@@ -3041,8 +3375,322 @@ const ListingForm = () => {
           />
         </div>
 
-        {/* Listing Rules */}
+        {/* Additional Services */}
+        <div
+          id="services-details"
+          onFocusCapture={() => setActiveSection('services')}
+          onMouseEnter={() => setActiveSection('services')}
+        >
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Additional Services</h2>
+          <div className="space-y-4">
+            {additionalServices.map((service, index) => {
+              const isExpanded = expandedServices.has(service.id);
+              const serviceTitle = service.additional_service_name || `Service ${index + 1}`;
+              
+              return (
+                <div key={service.id} className="border border-gray-200 rounded-lg bg-white">
+                  {/* Header - Always Visible */}
+                  <div className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3 flex-1">
+                      {/* Collapse/Expand Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExpandedServices(prev => {
+                            const newSet = new Set(prev);
+                            if (newSet.has(service.id)) {
+                              newSet.delete(service.id);
+                            } else {
+                              newSet.add(service.id);
+                            }
+                            return newSet;
+                          });
+                        }}
+                        className="p-1 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                        title={isExpanded ? 'Collapse' : 'Expand'}
+                      >
+                        <svg
+                          className={`w-5 h-5 transition-transform ${isExpanded ? 'transform rotate-90' : ''}`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                      <h3 className="text-lg font-medium text-gray-900">{serviceTitle}</h3>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {/* Active/Inactive Toggle */}
+                      <label className="flex items-center cursor-pointer">
+                        <span className={`mr-3 text-sm font-medium ${service.active ? 'text-gray-900' : 'text-gray-500'}`}>
+                          {service.active ? 'Active' : 'Inactive'}
+                        </span>
+                        <div className="relative">
+                          <input
+                            type="checkbox"
+                            checked={service.active}
+                            onChange={(e) => {
+                              setAdditionalServices(prev =>
+                                prev.map(s => s.id === service.id ? { ...s, active: e.target.checked } : s)
+                              );
+                            }}
+                            className="sr-only"
+                          />
+                          <div className={`block w-14 h-8 rounded-full transition-colors ${
+                            service.active ? 'bg-primary-600' : 'bg-gray-300'
+                          }`}></div>
+                          <div className={`absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${
+                            service.active ? 'transform translate-x-6' : ''
+                          }`}></div>
+                        </div>
+                      </label>
+                      {/* Remove Button */}
+                      {additionalServices.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAdditionalServices(prev => prev.filter(s => s.id !== service.id));
+                            setExpandedServices(prev => {
+                              const newSet = new Set(prev);
+                              newSet.delete(service.id);
+                              return newSet;
+                            });
+                          }}
+                          className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Remove"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-1 12a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m14 0H5m3-4h8m-5 4v10m4-10v10"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Collapsible Content */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Service Name */}
         <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Service Name *
+                          </label>
+                          <input
+                            type="text"
+                            value={service.additional_service_name || ''}
+                            onChange={(e) => {
+                              setAdditionalServices(prev =>
+                                prev.map(s => s.id === service.id ? { ...s, additional_service_name: e.target.value } : s)
+                              );
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                            placeholder="Enter service name"
+                          />
+                        </div>
+
+                        {/* Item Price */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Item Price *
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={service.item_price || ''}
+                            onChange={(e) => {
+                              setAdditionalServices(prev =>
+                                prev.map(s => s.id === service.id ? { ...s, item_price: e.target.value } : s)
+                              );
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                            placeholder="0.00"
+                          />
+                        </div>
+
+                        {/* Charge Type */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Charge Type *
+                          </label>
+                          <select
+                            value={service.additional_charge_type || ''}
+                            onChange={(e) => {
+                              setAdditionalServices(prev =>
+                                prev.map(s => s.id === service.id ? { ...s, additional_charge_type: e.target.value } : s)
+                              );
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                          >
+                            <option value="">Select charge type</option>
+                            <option value="Per Guest">Per Guest</option>
+                            <option value="Per Night">Per Night</option>
+                            <option value="Both">Both</option>
+                          </select>
+                        </div>
+
+                        {/* Image Upload */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Service Image
+                          </label>
+                          <div className="space-y-2">
+                            {service.upload_item_image ? (
+                              <div className="relative">
+                                <img
+                                  src={typeof service.upload_item_image === 'object' ? service.upload_item_image.url : service.upload_item_image}
+                                  alt={service.additional_service_name || 'Service image'}
+                                  className="w-full h-32 object-cover rounded-lg border border-gray-300"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setAdditionalServices(prev =>
+                                      prev.map(s => s.id === service.id ? { ...s, upload_item_image: null } : s)
+                                    );
+                                  }}
+                                  className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
+                                  title="Remove image"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            ) : (
+                              <label className="block w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors cursor-pointer">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  onChange={async (e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    
+                                    // Validate file type
+                                    if (!file.type.startsWith('image/')) {
+                                      alert(`${file.name} is not an image file.`);
+                                      return;
+                                    }
+                                    
+                                    // Validate file size (max 10MB)
+                                    if (file.size > 10 * 1024 * 1024) {
+                                      alert(`${file.name} is too large. Maximum size is 10MB.`);
+                                      return;
+                                    }
+
+                                    // Create preview immediately
+                                    const previewUrl = URL.createObjectURL(file);
+                                    setAdditionalServices(prev =>
+                                      prev.map(s => s.id === service.id ? { ...s, upload_item_image: { id: `temp-${Date.now()}`, url: previewUrl, uploading: true } } : s)
+                                    );
+
+                                    try {
+                                      const listingId = isEdit ? parseInt(id, 10) || id : null;
+                                      const response = await uploadMedia(file, listingId);
+                                      const imageId = response.id || response.ID;
+                                      const imageUrl = response.source_url || response.guid?.rendered || response.url || response.link;
+                                      
+                                      setAdditionalServices(prev =>
+                                        prev.map(s => s.id === service.id ? { ...s, upload_item_image: { id: imageId, url: imageUrl } } : s)
+                                      );
+                                      URL.revokeObjectURL(previewUrl);
+                                    } catch (error) {
+                                      console.error('Error uploading image:', error);
+                                      alert(`Failed to upload ${file.name}. Please try again.`);
+                                      setAdditionalServices(prev =>
+                                        prev.map(s => s.id === service.id ? { ...s, upload_item_image: null } : s)
+                                      );
+                                      URL.revokeObjectURL(previewUrl);
+                                    }
+                                    
+                                    // Reset input
+                                    e.target.value = '';
+                                  }}
+                                />
+                                <div className="flex items-center justify-center gap-2 text-gray-600">
+                                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                  </svg>
+                                  <span>Click to upload image</span>
+                                </div>
+                              </label>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Service Description */}
+                        <div className="md:col-span-2">
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Service Description
+                          </label>
+                          <textarea
+                            value={service.additional_service_description || ''}
+                            onChange={(e) => {
+                              setAdditionalServices(prev =>
+                                prev.map(s => s.id === service.id ? { ...s, additional_service_description: e.target.value } : s)
+                              );
+                            }}
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+                            placeholder="Enter service description"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+              })}
+
+            {/* Add Service Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const newId = Math.max(...additionalServices.map(s => s.id || 0), 0) + 1;
+                setAdditionalServices(prev => [
+                  ...prev,
+                  {
+                    id: newId,
+                    additional_service_name: '',
+                    additional_service_description: '',
+                    item_price: '',
+                    additional_charge_type: '',
+                    upload_item_image: null,
+                    active: true,
+                  },
+                ]);
+                // Auto-expand the new service
+                setExpandedServices(prev => new Set(prev).add(newId));
+              }}
+              className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-primary-500 hover:bg-primary-50 transition-colors flex items-center justify-center gap-2 text-gray-600"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Add New Service</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Listing Rules */}
+        <div
+          id="rules-details"
+          onFocusCapture={() => setActiveSection('rules')}
+          onMouseEnter={() => setActiveSection('rules')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Listing Rules</h2>
           <div className="space-y-4">
             {/* Rule Mode Selection */}
@@ -3090,8 +3738,8 @@ const ListingForm = () => {
 
             {/* Existing Rule Selection */}
             {formData.listing_rule_mode === 'existing' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
                   Select Listing Rule *
                 </label>
                 <select
@@ -3130,6 +3778,30 @@ const ListingForm = () => {
                     );
                   })}
                 </select>
+
+                {/* Rule Preview - Only show when a rule is selected */}
+                {formData.selected_listing_rule_id && (() => {
+                  const selectedRule = availableListingRules.find(r => (r.id || r.ID) == formData.selected_listing_rule_id);
+                  if (!selectedRule) return null;
+                  
+                  const ruleTitle = selectedRule.title?.rendered || selectedRule.listing_rule_title || selectedRule.meta?.listing_rule_title || 'Untitled Rule';
+                  const ruleContent = selectedRule.listing_rules || selectedRule.meta?.listing_rules || selectedRule.content?.rendered || '';
+                  const previewLength = 300;
+                  const shouldTruncate = ruleContent.length > previewLength;
+                  const previewText = shouldTruncate ? ruleContent.substring(0, previewLength) + '...' : ruleContent;
+                  
+                  return (
+                    <div className="mt-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">Rule Preview</h4>
+                      <div className="text-sm text-gray-700">
+                        <div className="font-medium text-gray-800 mb-1">{ruleTitle}</div>
+                        <div className="text-gray-600 whitespace-pre-wrap">
+                          {previewText || <span className="text-gray-400 italic">No content available</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -3138,23 +3810,27 @@ const ListingForm = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Rules *
-                </label>
-                <textarea
-                  name="listing_rule"
-                  value={formData.listing_rule}
-                  onChange={handleChange}
-                  rows={6}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
-                  placeholder="Enter listing rules and policies..."
+            </label>
+            <textarea
+              name="listing_rule"
+              value={formData.listing_rule}
+              onChange={handleChange}
+              rows={6}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-primary-500 focus:border-primary-500"
+              placeholder="Enter listing rules and policies..."
                   required={formData.listing_rule_mode === 'custom'}
-                />
+            />
               </div>
             )}
           </div>
         </div>
 
         {/* Admin Details */}
-        <div>
+        <div
+          id="admin-details"
+          onFocusCapture={() => setActiveSection('admin')}
+          onMouseEnter={() => setActiveSection('admin')}
+        >
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Admin Details</h2>
           <div className="space-y-4">
             <div>
@@ -3232,14 +3908,7 @@ const ListingForm = () => {
         </div>
 
         {/* Actions */}
-        <div className="flex gap-4 pt-4 border-t">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving...' : isEdit ? 'Update Listing' : 'Create Listing'}
-          </button>
+        <div className="flex items-center justify-end gap-3 pt-4 border-t">
           <button
             type="button"
             onClick={() => {
@@ -3249,12 +3918,95 @@ const ListingForm = () => {
                 navigate('/listings');
               }
             }}
-            className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+            disabled={saving}
+            className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
+          <button
+            type="button"
+            onClick={(e) => handleSubmit(e, true)}
+            disabled={saving}
+            className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : 'Save as Draft'}
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? 'Saving...' : isEdit ? 'Update Listing' : 'Create Listing'}
+          </button>
         </div>
       </form>
+        </div>
+
+        {/* Sticky Sidebar - right side */}
+        <aside className="hidden lg:block w-64 sticky top-24 self-start">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-900 mb-2">Sections</h2>
+            <nav className="space-y-1">
+              {[
+                { id: 'basic', label: 'Basic Details', target: 'basic-details' },
+                { id: 'property', label: 'Property Details', target: 'property-details' },
+                { id: 'price', label: 'Price Details', target: 'price-details' },
+                { id: 'discount', label: 'Discount Details', target: 'discount-details' },
+                { id: 'time', label: 'Time Details', target: 'time-details' },
+                { id: 'location', label: 'Location Details', target: 'location-details' },
+                { id: 'media', label: 'Media (Video & Gallery)', target: 'media-details' },
+                { id: 'services', label: 'Additional Services', target: 'services-details' },
+                { id: 'rules', label: 'Listing Rules', target: 'rules-details' },
+                { id: 'admin', label: 'Admin Details', target: 'admin-details' },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById(item.target);
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                    setActiveSection(item.id);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                    activeSection === item.id
+                      ? 'bg-primary-50 text-primary-700 font-medium border border-primary-100'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {/* Helper Text */}
+          <div className="mt-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+              Current section
+            </h3>
+            <p className="text-sm font-medium text-gray-900 mb-1">
+              {{
+                basic: 'Basic Details',
+                property: 'Property Details',
+                price: 'Price Details',
+                discount: 'Discount Details',
+                time: 'Time Details',
+                location: 'Location Details',
+                media: 'Media',
+                services: 'Additional Services',
+                rules: 'Listing Rules',
+                admin: 'Admin Details',
+              }[activeSection] || 'Basic Details'}
+            </p>
+            <p className="text-xs text-gray-600">
+              {sectionHelperText[activeSection] || sectionHelperText.basic}
+            </p>
+          </div>
+        </aside>
+      </div>
+
       {/* Leave without saving modal */}
       <ConfirmModal
         open={showLeaveConfirm}
